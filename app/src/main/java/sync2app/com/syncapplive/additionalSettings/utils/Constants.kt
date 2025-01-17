@@ -31,6 +31,7 @@ class Constants {
 
         //for Api CSv Download
         const val myCSvEndPath = "Start/start1.csv"
+        const val ifEndContainsIndexFileName = "index.html"
         const val myCSVUpdate1 = "/Api/update1.csv"
 
 
@@ -76,6 +77,7 @@ class Constants {
         const val AppConfigFolder = "AppConfig"
         const val Syn2AppLive = "Syn2AppLive"
         const val Invalid_Config_Url = "Invalid Config Url"
+        const val TEMP_PARS_FOLDER = "TEMP_PARS_FOLDER"
 
         // for sync Api
         const val numberOfFiles = "numberOfFiles"
@@ -150,8 +152,8 @@ class Constants {
         const val get_ModifiedUrl = "get_ModifiedUrl"
         const val ENABLE_LANDSCAPE_MODE = "ENABLE_LANDSCAPE_MODE"
         const val ENABLE_POTRAIT_MODE = "ENABLE_POTRAIT_MODE"
-
-
+        const val ENABLE_USER_AGENT = "ENABLE_USER_AGENT"
+        const val PROTECT_PASSWORD = "PROTECT_PASSWORD"
 
 
 
@@ -188,7 +190,8 @@ class Constants {
         const val threeFolderPath = "threeFolderPath"
         const val fileNmae_App_Zip = "App.zip"
         const val Error_CSv_Message = "Api not readable from location"
-
+        const val Error_IndexFile_Message = "Unable to scan index file"
+        const val Error_Parsing_Message = "Index File not readable from location"
 
         const val PR_running = "PR: Running"
         const val PR_checking = "PR: Checking"
@@ -200,6 +203,11 @@ class Constants {
         const val PR_Change_Found = "PR: Change Found"
         const val PR_NO_CHange = "PR: No Change"
         const val RetryCount = "RetryCount"
+        const val PR_Indexing_Files = "PR: Indexing.."
+        const val PR_Retry_Failed = "PR: Retrying.."
+        const val PR_Failed_Files_Number = "PR:Failed Files Number"
+        const val RE_START_PARSING = "RE_START_PARSING"
+
 
 
 
@@ -343,9 +351,25 @@ class Constants {
         const val  hide_Floating_ButtonLabel_APP = "showFloating_ButtonLabel_APP"
 
 
+
         // Move back to webviewpage
-        const val MOVE_BK_WEBVIEW_TIME = 1L*70L*1000L
+        const val MOVE_BK_WEBVIEW_TIME = 1L*90L*1000L
 
 
+
+        // Init the Selected Sync Typess
+        const val IMG_SELECTED_SYNC_METHOD = "IMG_SELECTED_SYNC_METHOD"
+        const val USE_ZIP_SYNC = "USE_ZIP_SYNC"
+        const val USE_API_SYNC = "USE_API_SYNC"
+        const val USE_PARSING_SYNC = "USE_PARSING_SYNC"
+        const val USE_FTP_SYNC = "USE_FTP_SYNC"
+
+        /// for parsing sync service
+        const val RECIVER_PROGRESS = "RECIVER_PROGRESS"
+        const val RECIVER_DOWNLOAD_BYTES_PROGRESS = "RECIVER_DOWNLOAD_BYTES_PROGRESS"
+        const val ParsingStatusSync = "ParsingStatusSync"
+        const val ParsingProgressBar = "ParsingProgressBar"
+        const val numberFailedFiles = "numberFailedFiles"
+        const val ParsingDownloadBytesProgress = "ParsingDownloadBytesProgress"
     }
 }

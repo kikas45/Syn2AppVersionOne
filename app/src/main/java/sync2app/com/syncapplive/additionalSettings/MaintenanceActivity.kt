@@ -34,6 +34,8 @@ import sync2app.com.syncapplive.databinding.CustomDefineRefreshTimeBinding
 import sync2app.com.syncapplive.databinding.CustomDefinedTimeIntervalsBinding
 import java.io.File
 import android.content.res.Configuration
+import androidx.activity.result.contract.ActivityResultContracts
+import sync2app.com.syncapplive.WebViewPage
 
 
 class MaintenanceActivity : AppCompatActivity() {
@@ -74,7 +76,8 @@ class MaintenanceActivity : AppCompatActivity() {
     private var T_12_HR = 12L
 
 
-
+    private val FILE_MANAGER_REQUEST_CODE = 1001
+    
     @SuppressLint("SetTextI18n", "SourceLockedOrientationActivity")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -220,7 +223,6 @@ class MaintenanceActivity : AppCompatActivity() {
 
 
 
-
         val editor = sharedBiometric.edit()
 
         Handler(Looper.getMainLooper()).postDelayed({
@@ -241,17 +243,24 @@ class MaintenanceActivity : AppCompatActivity() {
             imgSetOrientationMode.isChecked = getState.equals(Constants.ENABLE_LANDSCAPE_MODE)
 
             if (getState == Constants.ENABLE_LANDSCAPE_MODE){
+
                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                 textSetOrientationMode.text = "Landscape Mode Enabled"
-            }else{
 
-                if (getState.isNullOrEmpty()){
-                    requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                    textSetOrientationMode.text = "Landscape Mode Enabled"
-                }else{
-                    requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                    textSetOrientationMode.text = "Portrait Mode Enabled"
-                }
+            }else{
+                textSetOrientationMode.text = "Portrait Mode Enabled"
+                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+
+
+                /* if (getState.isNullOrEmpty()){
+                     requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                     textSetOrientationMode.text = "Landscape Mode Enabled"
+                 }else{
+                     requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                     textSetOrientationMode.text = "Portrait Mode Enabled"
+                 }*/
+
+
             }
 
 
@@ -262,31 +271,82 @@ class MaintenanceActivity : AppCompatActivity() {
                     // Switch to landscape mode
                     requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
+                    // Update UI elements
+                    textSetOrientationMode.text = "Landscape Mode Enabled"
+
                     // Save the landscape mode setting
                     editor.putString(Constants.ENABLE_LANDSCAPE_MODE, Constants.ENABLE_LANDSCAPE_MODE)
                     editor.apply()
 
-                    // Update UI elements
-                    textSetOrientationMode.text = "Landscape Mode Enabled"
 
                 } else {
+
                     // Switch to portrait mode
                     requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-
-                    // Remove the landscape mode setting
-                    editor.putString(Constants.ENABLE_LANDSCAPE_MODE, Constants.ENABLE_POTRAIT_MODE)
-                    editor.apply()
 
                     // Update UI elements
                     textSetOrientationMode.text = "Portrait Mode Enabled"
 
 
-            }
+                    // Remove the landscape mode setting
+                    editor.putString(Constants.ENABLE_LANDSCAPE_MODE, Constants.ENABLE_POTRAIT_MODE)
+                    editor.apply()
+
+                }
         }
 
 
+        }
 
 
+        binding.apply {
+            //  imgSetUserAgent
+
+            // Set an OnClickListener to toggle orientation mode
+            imgSetUserAgent.setOnCheckedChangeListener { compoundButton, isValued -> // we are putting the values into SHARED PREFERENCE
+                if (compoundButton.isChecked) {
+                    binding.textSetUserAgents.text = "Use Desktop Mode"
+
+                    // Save the landscape mode setting
+                    editor.putString(Constants.ENABLE_USER_AGENT, Constants.ENABLE_USER_AGENT)
+                    editor.apply()
+
+
+                } else {
+
+                    binding.textSetUserAgents.text = "Use MobileMode"
+
+                    // Remove the landscape mode setting
+                    editor.remove(Constants.ENABLE_USER_AGENT)
+                    editor.apply()
+
+                }
+            }
+
+            val get_imgSetUserAgent = sharedBiometric.getString(Constants.ENABLE_USER_AGENT, "").toString()
+
+            imgSetUserAgent.isChecked = get_imgSetUserAgent.equals(Constants.ENABLE_USER_AGENT)
+
+            if (get_imgSetUserAgent.equals(Constants.ENABLE_USER_AGENT)) {
+
+                binding.textSetUserAgents.text = "Use Desktop Mode"
+
+            } else {
+
+                binding.textSetUserAgents.text = "Use MobileMode"
+
+            }
+
+        }
+
+
+        binding.textOpenSystemFiles.setOnClickListener {
+            openFileManager()
+        }
+
+
+        binding.textOpenChromeBrowser.setOnClickListener {
+           openFileInChrome()
         }
 
 
@@ -360,10 +420,6 @@ class MaintenanceActivity : AppCompatActivity() {
 
         binding.apply {
 
-
-
-
-
             /// enable the Auto Boot
             imagEnableDownloadStatus.setOnCheckedChangeListener { compoundButton, isValued -> // we are putting the values into SHARED PREFERENCE
                 if (compoundButton.isChecked) {
@@ -380,7 +436,7 @@ class MaintenanceActivity : AppCompatActivity() {
             }
 
 
-            val get_imagEnableDownloadStatus = sharedBiometric.getString(Constants.showDownloadSyncStatus, "")
+            val get_imagEnableDownloadStatus = sharedBiometric.getString(Constants.showDownloadSyncStatus, "").toString()
 
 
             imagEnableDownloadStatus.isChecked = get_imagEnableDownloadStatus.equals(Constants.showDownloadSyncStatus)
@@ -396,11 +452,8 @@ class MaintenanceActivity : AppCompatActivity() {
             }
 
 
-
-
-            closeBs.setOnClickListener {
-
-                val get_navigationS2222 = sharedBiometric.getString(Constants.SAVE_NAVIGATION, "")
+            binding.closeBs.setOnClickListener {
+                val get_navigationS2222 = sharedBiometric.getString(Constants.SAVE_NAVIGATION, "").toString()
 
                 if (get_navigationS2222.equals(Constants.SettingsPage)) {
                     val intent = Intent(applicationContext, SettingsActivityKT::class.java)
@@ -411,10 +464,15 @@ class MaintenanceActivity : AppCompatActivity() {
                         Intent(applicationContext, AdditionalSettingsActivity::class.java)
                     startActivity(intent)
                     finish()
+                } else if (get_navigationS2222.equals(Constants.WebViewPage)) {
+                    val intent =
+                        Intent(applicationContext, WebViewPage::class.java)
+                    startActivity(intent)
+                    finish()
                 }
 
-
             }
+
 
 
             textHardwarePage.setOnClickListener {
@@ -484,24 +542,6 @@ class MaintenanceActivity : AppCompatActivity() {
 
 
 
-            closeBs.setOnClickListener {
-
-                val get_navigationS2222 = sharedBiometric.getString(Constants.SAVE_NAVIGATION, "")
-
-                if (get_navigationS2222.equals(Constants.SettingsPage)) {
-                    val intent = Intent(applicationContext, SettingsActivityKT::class.java)
-                    startActivity(intent)
-                    finish()
-                } else if (get_navigationS2222.equals(Constants.AdditionNalPage)) {
-                    val intent =
-                        Intent(applicationContext, AdditionalSettingsActivity::class.java)
-                    startActivity(intent)
-                    finish()
-                }
-
-
-            }
-
 
             textHardwarePage.setOnClickListener {
                 val intent = Intent(applicationContext, SystemInfoActivity::class.java)
@@ -551,8 +591,56 @@ class MaintenanceActivity : AppCompatActivity() {
             }
         }
 
+    }
 
 
+
+    private fun openFileManager() {
+        try {
+            val intent = Intent(Intent.ACTION_GET_CONTENT)
+            intent.type = "*/*" // Filter by file type, e.g., "image/*", "application/pdf"
+            intent.addCategory(Intent.CATEGORY_OPENABLE) // Ensure only openable files are shown
+
+            // Start the activity and handle the result in onActivityResult or ActivityResult API
+            startActivityForResult(Intent.createChooser(intent, "Choose a file"), FILE_MANAGER_REQUEST_CODE)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == FILE_MANAGER_REQUEST_CODE && resultCode == RESULT_OK) {
+            data?.data?.let { uri ->
+                // Use the Uri to access the selected file
+                Toast.makeText(this, "Selected file: $uri", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+
+
+    private fun openFileInChrome() {
+        try {
+            val url ="https://www.google.com/"
+            val fileUri: Uri = Uri.parse(url)
+            val intent = Intent(Intent.ACTION_VIEW)
+            intent.setDataAndType(fileUri, "text/html")
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+            // Check if Chrome is installed and use it explicitly
+            intent.setPackage("com.android.chrome")
+
+            startActivity(intent)
+
+        } catch (e: Exception) {
+            // Fallback: Try opening with any browser
+            intent.setPackage(null)
+            startActivity(Intent.createChooser(intent, "Open file with"))
+            Toast.makeText(applicationContext, "Error${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
 
@@ -844,6 +932,11 @@ class MaintenanceActivity : AppCompatActivity() {
         } else if (get_navigationS2222.equals(Constants.AdditionNalPage)) {
             val intent =
                 Intent(applicationContext, AdditionalSettingsActivity::class.java)
+            startActivity(intent)
+            finish()
+        } else if (get_navigationS2222.equals(Constants.WebViewPage)) {
+            val intent =
+                Intent(applicationContext, WebViewPage::class.java)
             startActivity(intent)
             finish()
         }

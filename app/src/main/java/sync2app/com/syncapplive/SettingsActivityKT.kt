@@ -121,17 +121,13 @@ class SettingsActivityKT : AppCompatActivity() {
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+
         val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
-
 
         handlerMoveToWebviewPage.postDelayed(Runnable {
             val getInfoPageState = sharedBiometric.getString(Constants.FIRST_INFORMATION_PAGE_COMPLETED, "").toString()
@@ -437,8 +433,11 @@ class SettingsActivityKT : AppCompatActivity() {
                     editorShared.putString(Constants.MY_TV_OR_APP_MODE, Constants.TV_Mode)
 
                     editorShared.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_WebView_Offline)
+                    editorShared.putString(Constants.PROTECT_PASSWORD, Constants.PROTECT_PASSWORD)
                     editorShared.apply()
 
+                    // for pasowrod
+                    imgProtrectPassoword.isChecked = true
 
                     //for Tv mode
                     imgFullScreenToggle.isChecked = true
@@ -469,8 +468,13 @@ class SettingsActivityKT : AppCompatActivity() {
                     editorShared.putString(Constants.MY_TV_OR_APP_MODE, Constants.App_Mode)
                     editorShared.remove(Constants.imgStartAppRestartOnTvMode)
                     editorShared.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_Default_WebView_url)
+                    editorShared.remove(Constants.PROTECT_PASSWORD)
                     editorShared.apply()
 
+
+                    //forassword
+
+                    imgProtrectPassoword.isChecked = false
 
                     // for App Mode
                     imgFullScreenToggle.isChecked = false
@@ -1163,6 +1167,41 @@ class SettingsActivityKT : AppCompatActivity() {
 
         }
 
+        // proctec password
+        binding.apply {
+
+            // Set an OnClickListener to toggle orientation mode
+            imgProtrectPassoword.setOnCheckedChangeListener { compoundButton, isValued ->
+                if (compoundButton.isChecked) {
+
+                    binding.textProctPassowrd.text = "Protect Exit"
+
+                    editorShared.putString(Constants.PROTECT_PASSWORD, Constants.PROTECT_PASSWORD)
+                    editorShared.apply()
+
+                } else {
+                    binding.textProctPassowrd.text = "Do not Protect Exit"
+
+                    editorShared.remove(Constants.PROTECT_PASSWORD)
+                    editorShared.apply()
+
+                }
+            }
+
+
+            val get_ProtectPassowrd = sharedBiometric.getString(Constants.PROTECT_PASSWORD, "").toString()
+            imgProtrectPassoword.isChecked = get_ProtectPassowrd == Constants.PROTECT_PASSWORD
+
+            if (get_ProtectPassowrd == Constants.PROTECT_PASSWORD) {
+                binding.textProctPassowrd.text = "Protect Exit"
+            } else {
+
+                binding.textProctPassowrd.text = "Do not Protect Exit"
+
+            }
+
+        }
+
 
     }
 
@@ -1345,13 +1384,13 @@ class SettingsActivityKT : AppCompatActivity() {
     private fun showCustomProgressDialog(message: String) {
         try {
             customProgressDialog = Dialog(this)
-            val binding: ProgressDialogLayoutBinding =
-                ProgressDialogLayoutBinding.inflate(LayoutInflater.from(this))
+            val binding: ProgressDialogLayoutBinding = ProgressDialogLayoutBinding.inflate(LayoutInflater.from(this))
             customProgressDialog!!.setContentView(binding.getRoot())
             customProgressDialog!!.setCancelable(false)
             customProgressDialog!!.setCanceledOnTouchOutside(false)
-            customProgressDialog!!.getWindow()!!
-                .setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            customProgressDialog!!.getWindow()!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            customProgressDialog!!.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
+
             binding.textLoading.setText(message)
             binding.imgCloseDialog.setVisibility(View.GONE)
             val consMainAlert_sub_layout: ConstraintLayout = binding.consMainAlertSubLayout

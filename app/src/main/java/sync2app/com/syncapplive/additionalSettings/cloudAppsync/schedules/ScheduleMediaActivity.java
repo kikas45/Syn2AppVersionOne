@@ -67,16 +67,23 @@ public class ScheduleMediaActivity extends AppCompatActivity {
 
         SharedPreferences sharedBiometri222c = getSharedPreferences(Constants.SHARED_BIOMETRIC, MODE_PRIVATE);
         String getState = sharedBiometri222c.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString();
-        if (getState.equals(Constants.ENABLE_LANDSCAPE_MODE)) {
+/*        if (getState.equals(Constants.ENABLE_LANDSCAPE_MODE)) {
             setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         } else {
-            if (getState.isEmpty()) {
+        *//*    if (getState.isEmpty()) {
                 setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
             } else {
                 setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-            }
-        }
+            }*//*
+        }*/
 
+
+
+        if (getState.equals(Constants.ENABLE_LANDSCAPE_MODE)) {
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        } else {
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        }
 
 
         // init variables

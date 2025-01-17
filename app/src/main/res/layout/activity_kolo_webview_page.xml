@@ -7,25 +7,13 @@
     tools:context=".DE_MO_TEST.KoloWebviewPage">
 
 
-
-    <TextView
-        android:id="@+id/displayText"
+    <Button
+        android:id="@+id/btnDownload"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:text="TextView"
+        android:text="Button"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
-
-    <Button
-        android:id="@+id/btnFecthData"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:text="Fetch"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/displayText" />
-
 </androidx.constraintlayout.widget.ConstraintLayout>

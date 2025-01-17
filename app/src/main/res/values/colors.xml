@@ -20,6 +20,9 @@
     <color name="dot_dark_screen3">#BDBFBF</color>
     <color name="dot_dark_screen4">#BFC8C8</color>
 
+    <color name="light_gray_dim">#838282</color>
+    <color name="pop_layout_color">#EBEFF3</color>
+
 <!--    by david -->
     <color name="deep_blue">#033851</color>
     <color name="deep_blue_v2">#2E6693</color>

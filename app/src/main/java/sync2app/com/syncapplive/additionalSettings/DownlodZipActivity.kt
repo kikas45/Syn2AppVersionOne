@@ -75,6 +75,7 @@ class DownlodZipActivity : AppCompatActivity() {
         )
     }
 
+    private var customProgressDialog: Dialog? = null
 
     private var powerManager: PowerManager? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -96,19 +97,27 @@ class DownlodZipActivity : AppCompatActivity() {
         binding = ActivityDownlodPaggerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+/*        val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
+        if (getState == Constants.ENABLE_LANDSCAPE_MODE){
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }else{
+            *//* if (getState.isNullOrEmpty()){
+                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+             }else{
+                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+             }*//*
+        }*/
+
+
         val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
 
 
-        val get_imgToggleImageBackground = sharedBiometric.getString(Constants.imgToggleImageBackground, "")
+        val get_imgToggleImageBackground = sharedBiometric.getString(Constants.imgToggleImageBackground, "").toString()
         val get_imageUseBranding = sharedBiometric.getString(Constants.imageUseBranding, "")
         if (get_imgToggleImageBackground.equals(Constants.imgToggleImageBackground) && get_imageUseBranding.equals(Constants.imageUseBranding) ){
             loadBackGroundImage()
@@ -128,8 +137,6 @@ class DownlodZipActivity : AppCompatActivity() {
         binding.apply {
             closeBs.setOnClickListener {
                 second_cancel_download()
-                startActivity(Intent(applicationContext, ReSyncActivity::class.java))
-                finish()
 
             }
 
@@ -158,6 +165,7 @@ class DownlodZipActivity : AppCompatActivity() {
 
             textCancelBtn.setOnClickListener {
                 second_cancel_download()
+
             }
 
 
@@ -307,7 +315,6 @@ class DownlodZipActivity : AppCompatActivity() {
                 val editor = sharedP.edit()
                 editor.putString(Constants.imgAllowLunchFromOnline, "imgAllowLunchFromOnline")
                 editor.apply()
-                second_cancel_download2222()
                 stratLauncOnline()
                 alertDialog.dismiss()
             }
@@ -359,13 +366,13 @@ class DownlodZipActivity : AppCompatActivity() {
                 binding.imagePauseDownload.isEnabled = false
                 binding.imageResumeDownload.isEnabled = false
 
-                val get_value_if_Api_is_required = sharedBiometric.getString(Constants.imagSwtichEnableSyncFromAPI, "")
+                val get_value_if_Api_is_required = sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
 
                 if (isValid == true) {
                     isValid = false
                     showCustomProgressDialog("Please wait! \n Download in Progress")
                     handler.postDelayed(Runnable {
-                        if (get_value_if_Api_is_required.equals(Constants.imagSwtichEnableSyncFromAPI)){
+                        if (get_value_if_Api_is_required.equals(Constants.USE_ZIP_SYNC)){
                             funUnZipFile()
                         }else{
                             stratMyACtivity()
@@ -375,7 +382,8 @@ class DownlodZipActivity : AppCompatActivity() {
 
                     }, 250)
                 } else {
-                    //  showToastMessage("Something went wrong")
+                   // showToastMessage("Something went wrong")
+
                 }
 
 
@@ -397,16 +405,15 @@ class DownlodZipActivity : AppCompatActivity() {
 
     private fun showCustomProgressDialog(message: String) {
         try {
-            val customProgressDialog = Dialog(this)
-            val binding = ProgressDialogLayoutBinding.inflate(LayoutInflater.from(this))
-            customProgressDialog.setContentView(binding.root)
-            customProgressDialog.setCancelable(true)
-            customProgressDialog.setCanceledOnTouchOutside(false)
-            customProgressDialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            customProgressDialog = Dialog(this)
+            val binding: ProgressDialogLayoutBinding = ProgressDialogLayoutBinding.inflate(LayoutInflater.from(this))
+            customProgressDialog!!.setContentView(binding.getRoot())
+            customProgressDialog!!.setCancelable(false)
+            customProgressDialog!!.setCanceledOnTouchOutside(false)
+            customProgressDialog!!.getWindow()!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            customProgressDialog!!.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
 
             binding.textLoading.text = "$message"
-
-
 
             val consMainAlert_sub_layout = binding.consMainAlertSubLayout
             val textLoading = binding.textLoading
@@ -445,7 +452,7 @@ class DownlodZipActivity : AppCompatActivity() {
 
 
 
-            customProgressDialog.show()
+            customProgressDialog!!.show()
         } catch (_: Exception) {
         }
     }
@@ -543,7 +550,7 @@ class DownlodZipActivity : AppCompatActivity() {
 
             val get_value_if_Api_is_required = sharedBiometric.getString(Constants.imagSwtichEnableSyncFromAPI, "")
             if (get_value_if_Api_is_required.equals(Constants.imagSwtichEnableSyncFromAPI)){
-                second_cancel_download2222()
+              //  second_cancel_download()
             }
 
             if (wakeLock != null && wakeLock!!.isHeld) {
@@ -551,30 +558,11 @@ class DownlodZipActivity : AppCompatActivity() {
             }
 
 
-        } catch (ignored: java.lang.Exception) {
+        } catch (e:Exception) {
+
+            Log.d("DOOOM", "second_cancel_download2222: ${e.message.toString()}")
         }
     }
-
-    private fun second_cancel_download2222() {
-
-        try {
-
-            val download_ref: Long = sharedP.getLong(Constants.downloadKey, -15)
-
-            val query = DownloadManager.Query()
-            query.setFilterById(download_ref)
-            val c =
-                (applicationContext.getSystemService(DOWNLOAD_SERVICE) as DownloadManager).query(query)
-            if (c.moveToFirst()) {
-                manager!!.remove(download_ref)
-                val editor: SharedPreferences.Editor = sharedP.edit()
-                editor.remove(Constants.downloadKey)
-                editor.apply()
-            }
-        } catch (ignored: java.lang.Exception) {
-        }
-    }
-
 
 
 
@@ -583,16 +571,15 @@ class DownlodZipActivity : AppCompatActivity() {
             // Retrieve your parameters here...
 
             lifecycleScope.launch(Dispatchers.IO) {
-                val getFolderClo = sharedP.getString(Constants.getFolderClo, "")
-                val getFolderSubpath = sharedP.getString(Constants.getFolderSubpath, "")
-                val Zip = sharedP.getString("Zip", "")
-                val fileNamy = sharedP.getString("fileNamy", "")
-                val Extracted = sharedP.getString(Constants.Extracted, "")
+                val getFolderClo = sharedP.getString(Constants.getFolderClo, "").toString()
+                val getFolderSubpath = sharedP.getString(Constants.getFolderSubpath, "").toString()
+                val Zip = sharedP.getString("Zip", "").toString()
+                val fileNamy = sharedP.getString("fileNamy", "").toString()
+                val Extracted = sharedP.getString(Constants.Extracted, "").toString()
 
 
                 val finalFolderPath = "/$getFolderClo/$getFolderSubpath/$Zip"
                 val finalFolderPathDesired = "/$getFolderClo/$getFolderSubpath/$Extracted"
-                //  val finalFolderPathDesired = "/$getFolderClo/$Extracted"
 
 
 
@@ -604,12 +591,13 @@ class DownlodZipActivity : AppCompatActivity() {
                 }
 
                 val myFile = File(directoryPathString, File.separator + fileNamy)
-                //  val myFile = File(directoryPathString, fileNamy)
                 if (myFile.exists()) {
                     extractZip(myFile.toString(), destinationFolder.toString())
                 } else {
                     withContext(Dispatchers.Main) {
-                        showToastMessage("Zip file could not be found")
+                        //showToastMessage("Zip file could not be found")
+                        showToastMessage("$directoryPathString")
+                        stratMyACtivity()
                     }
                 }
             }
@@ -699,22 +687,14 @@ class DownlodZipActivity : AppCompatActivity() {
 
     private fun stratMyACtivity() {
         try {
-
             handler.postDelayed(Runnable {
-
-                val getFolderClo = sharedP.getString("getFolderClo", "")
-                val getFolderSubpath = sharedP.getString("getFolderSubpath", "")
-                val Zip = sharedP.getString("Zip", "")
-                val fileName = sharedP.getString("fileName", "")
-                val Extracted = sharedP.getString("Extracted", "")
-
-                val getUnzipFileFrom =  "/$getFolderClo/$getFolderSubpath/$Extracted"
+                if (customProgressDialog !=null){
+                    customProgressDialog!!.dismiss()
+                }
                 val intent = Intent(applicationContext, WebViewPage::class.java)
-                intent.putExtra("getUnzipFileFrom", getUnzipFileFrom)
-
                 startActivity(intent)
                 finish()
-            }, 6000)
+            }, 3000)
 
 
         }catch (_:Exception){}
@@ -748,9 +728,25 @@ class DownlodZipActivity : AppCompatActivity() {
 
 
 
-            val intent = Intent(applicationContext, WebViewPage::class.java)
-            startActivity(intent)
-            finish()
+            lifecycleScope.launch(Dispatchers.IO) {
+                val getFolderClo = sharedP.getString("getFolderClo", "").toString()
+                val getFolderSubpath = sharedP.getString("getFolderSubpath", "").toString()
+                val Zip = sharedP.getString("Zip", "").toString()
+                val fileName = sharedP.getString("fileName", "").toString()
+
+                val finalFolderPath = "/$getFolderClo/$getFolderSubpath/$Zip/$fileName"
+                val directoryPath = Environment.getExternalStorageDirectory().absolutePath + "/Download/Syn2AppLive/" + finalFolderPath
+
+                val myFile = File(directoryPath, fileName.toString())
+                delete(myFile)
+
+                withContext(Dispatchers.Main){
+                    val intent = Intent(applicationContext, WebViewPage::class.java)
+                    startActivity(intent)
+                    finish()
+                }
+            }
+
 
         }catch (_:Exception){}
     }
@@ -806,36 +802,26 @@ class DownlodZipActivity : AppCompatActivity() {
     private fun second_cancel_download() {
         try {
 
-            val download_ref: Long = sharedP.getLong(Constants.downloadKey, -15)
 
-            val getFolderClo = sharedP.getString("getFolderClo", "")
-            val getFolderSubpath = sharedP.getString("getFolderSubpath", "")
-            val Zip = sharedP.getString("Zip", "")
-            val fileName = sharedP.getString("fileName", "")
+            lifecycleScope.launch(Dispatchers.IO) {
+                val getFolderClo = sharedP.getString("getFolderClo", "").toString()
+                val getFolderSubpath = sharedP.getString("getFolderSubpath", "").toString()
+                val Zip = sharedP.getString("Zip", "").toString()
+                val fileName = sharedP.getString("fileName", "").toString()
 
+                val finalFolderPath = "/$getFolderClo/$getFolderSubpath/$Zip/$fileName"
+                val directoryPath = Environment.getExternalStorageDirectory().absolutePath + "/Download/Syn2AppLive/" + finalFolderPath
 
-            val finalFolderPath = "/$getFolderClo/$getFolderSubpath/$Zip/$fileName"
+                val myFile = File(directoryPath, fileName.toString())
+                delete(myFile)
 
-            val directoryPath = Environment.getExternalStorageDirectory().absolutePath + "/Download/Syn2AppLive/" + finalFolderPath
-
-            val myFile = File(directoryPath, fileName.toString())
-            delete(myFile)
-
-
-            if (download_ref !=- 15L){
-                val query = DownloadManager.Query()
-                query.setFilterById(download_ref)
-                val c =
-                    (applicationContext.getSystemService(DOWNLOAD_SERVICE) as DownloadManager).query(query)
-                if (c.moveToFirst()) {
-                    manager!!.remove(download_ref)
-                    val editor: SharedPreferences.Editor = sharedP.edit()
-                    editor.remove(Constants.downloadKey)
-                    editor.apply()
-                    onBackPressed()
+                withContext(Dispatchers.Main){
+                    startActivity(Intent(applicationContext, ReSyncActivity::class.java))
+                    finish()
                 }
-
             }
+
+
 
         } catch (ignored: java.lang.Exception) {
         }
@@ -925,9 +911,6 @@ class DownlodZipActivity : AppCompatActivity() {
 
     override fun onBackPressed() {
         second_cancel_download()
-        startActivity(Intent(applicationContext, ReSyncActivity::class.java))
-        finish()
-
         super.onBackPressed()
     }
 

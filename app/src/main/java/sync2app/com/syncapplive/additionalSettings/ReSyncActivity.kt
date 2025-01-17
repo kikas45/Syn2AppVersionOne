@@ -44,8 +44,14 @@ import androidx.lifecycle.lifecycleScope
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.bumptech.glide.Glide
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import sync2app.com.syncapplive.WebViewPage
 import sync2app.com.syncapplive.R
@@ -59,6 +65,8 @@ import sync2app.com.syncapplive.additionalSettings.myApiDownload.FilesViewModel
 import sync2app.com.syncapplive.additionalSettings.myCompleteDownload.DnViewModel
 import sync2app.com.syncapplive.additionalSettings.myFailedDownloadfiles.DnFailedApi
 import sync2app.com.syncapplive.additionalSettings.myFailedDownloadfiles.DnFailedViewModel
+import sync2app.com.syncapplive.additionalSettings.myParsingDownloadDataBase.ParsingApi
+import sync2app.com.syncapplive.additionalSettings.myParsingDownloadDataBase.ParsingViewModel
 import sync2app.com.syncapplive.additionalSettings.utils.CSVDownloader
 import sync2app.com.syncapplive.additionalSettings.savedDownloadHistory.SavedHistoryListAdapter
 import sync2app.com.syncapplive.additionalSettings.savedDownloadHistory.User
@@ -66,6 +74,8 @@ import sync2app.com.syncapplive.additionalSettings.savedDownloadHistory.UserView
 import sync2app.com.syncapplive.additionalSettings.urlchecks.checkUrlExistence
 import sync2app.com.syncapplive.additionalSettings.urlchecks.isUrlValid
 import sync2app.com.syncapplive.additionalSettings.utils.Constants
+import sync2app.com.syncapplive.additionalSettings.utils.FileChecker
+import sync2app.com.syncapplive.additionalSettings.utils.Utility
 import sync2app.com.syncapplive.databinding.ActivitySyncPowellBinding
 import sync2app.com.syncapplive.databinding.ContinueWithConfigDownloadBinding
 import sync2app.com.syncapplive.databinding.CustomApiHardCodedLayoutBinding
@@ -74,6 +84,8 @@ import sync2app.com.syncapplive.databinding.CustomContinueDownloadLayoutBinding
 import sync2app.com.syncapplive.databinding.CustomDefinedTimeIntervalsBinding
 import sync2app.com.syncapplive.databinding.CustomSavedHistoryLayoutBinding
 import sync2app.com.syncapplive.databinding.CustomSelectLauncOrOfflinePopLayoutBinding
+import sync2app.com.syncapplive.databinding.CustomSelectSyncTypeBinding
+import sync2app.com.syncapplive.databinding.CustomSortFilesLayoutBinding
 import sync2app.com.syncapplive.databinding.FinishWithConfigDownloadBinding
 import sync2app.com.syncapplive.databinding.ProgressDialogLayoutBinding
 import sync2app.com.syncapplive.databinding.SampleProgressConfigLayoutBinding
@@ -91,10 +103,17 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
     private val mApiViewModel by viewModels<ApiUrlViewModel>()
 
-    private lateinit var mFilesViewModel: FilesViewModel
-    private lateinit var dnViewModel: DnViewModel
-    private lateinit var dnFailedViewModel: DnFailedViewModel
+    private val mFilesViewModel by viewModels<FilesViewModel>()
+    private val dnFailedViewModel by viewModels<DnFailedViewModel>()
+    private val dnViewModel by viewModels<DnViewModel>()
+    private val parsingViewModel by viewModels<ParsingViewModel>()
 
+
+    private  var filIst = ""
+    private var filesToProcess = 0
+    private val mutex = Mutex()
+
+    private var processingJob: Job? = null
 
     private val adapter by lazy {
         SavedHistoryListAdapter(this)
@@ -105,7 +124,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         SavedApiAdapter(this)
     }
 
-    private  val TAG_RSYC = "ReSyncActivity"
+    private val TAG_RSYC = "ReSyncActivity"
 
     private val handlerMoveToWebviewPage: Handler by lazy {
         Handler(Looper.getMainLooper())
@@ -183,7 +202,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         Handler(Looper.getMainLooper())
     }
 
-
     private val sharedTVAPPModePreferences: SharedPreferences by lazy {
         applicationContext.getSharedPreferences(
             Constants.SHARED_TV_APP_MODE, Context.MODE_PRIVATE
@@ -199,14 +217,13 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
         val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
+
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+
+
 
         handlerMoveToWebviewPage.postDelayed(Runnable {
             val intent = Intent(applicationContext, WebViewPage::class.java)
@@ -229,8 +246,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars =
                     false
                 WindowInsetsControllerCompat(
-                    window,
-                    window.decorView
+                    window, window.decorView
                 ).isAppearanceLightNavigationBars = false
 
 
@@ -246,7 +262,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                 textPartnerUrlLunch.setTextColor(resources.getColor(R.color.white))
                 textUseManual.setTextColor(resources.getColor(R.color.white))
-                textSynfromApiZip.setTextColor(resources.getColor(R.color.white))
 
 
                 textView12.setTextColor(resources.getColor(R.color.white))
@@ -298,8 +313,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     ContextCompat.getDrawable(applicationContext, R.drawable.ic_drop_down_24)
                 drawable_imagSpannerSavedDownload?.setColorFilter(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.white
+                        applicationContext, R.color.white
                     ), PorterDuff.Mode.SRC_IN
                 )
                 imagSpannerSavedDownload.setImageDrawable(drawable_imagSpannerSavedDownload)
@@ -308,8 +322,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     ContextCompat.getDrawable(applicationContext, R.drawable.ic_drop_down_24)
                 drawable_imagSpanner?.setColorFilter(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.white
+                        applicationContext, R.color.white
                     ), PorterDuff.Mode.SRC_IN
                 )
                 imagSpanner.setImageDrawable(drawable_imagSpanner)
@@ -332,8 +345,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     arrayOf(
                         intArrayOf(android.R.attr.state_checked),
                         intArrayOf(-android.R.attr.state_checked)
-                    ),
-                    intArrayOf(
+                    ), intArrayOf(
                         Color.LTGRAY,  // Color when checked
                         Color.LTGRAY   // Color when unchecked
                     )
@@ -343,8 +355,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     arrayOf(
                         intArrayOf(android.R.attr.state_enabled),
                         intArrayOf(-android.R.attr.state_enabled)
-                    ),
-                    intArrayOf(
+                    ), intArrayOf(
                         Color.DKGRAY,  // Color when enabled
                         Color.LTGRAY   // Color when disabled
                     )
@@ -356,9 +367,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                 imagSwtichEnableManualOrNot.thumbTintList = thumbColorStateList
                 imagSwtichEnableManualOrNot.trackTintList = trackColorStateList
-
-                imagSwtichEnableSyncFromAPI.thumbTintList = thumbColorStateList
-                imagSwtichEnableSyncFromAPI.trackTintList = trackColorStateList
 
 
                 imagSwtichUseIndexCahngeOrTimeStamp.thumbTintList = thumbColorStateList
@@ -381,68 +389,53 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 //  for divider i..n
                 divider21.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
                 divider10.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
                 divider27.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
                 divider31.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
                 divider30.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
                 divider2756766.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
                 divider13.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
-                divider26.setBackgroundColor(
-                    ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
-                    )
-                )
+
                 divider15565651.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
                 divider11.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
                 divider7.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.light_gray
+                        applicationContext, R.color.light_gray
                     )
                 )
 
@@ -453,12 +446,9 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
 
-        mFilesViewModel = FilesViewModel(application)
-        dnViewModel = DnViewModel(application)
-        dnFailedViewModel = DnFailedViewModel(application)
-
         powerManager = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = powerManager!!.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YourApp::MyWakelockTag")
+        wakeLock =
+            powerManager!!.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YourApp::MyWakelockTag")
         wakeLock!!.acquire()
 
 
@@ -490,7 +480,9 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             val getSavedEditTextInputSynUrlZip =
                 myDownloadClass.getString(Constants.getSavedEditTextInputSynUrlZip, "").toString()
 
-            val getSaved_manaul_index_edit_url_Input = myDownloadClass.getString(Constants.getSaved_manaul_index_edit_url_Input, "").toString()
+            val getSaved_manaul_index_edit_url_Input =
+                myDownloadClass.getString(Constants.getSaved_manaul_index_edit_url_Input, "")
+                    .toString()
 
             if (!getSavedCLOImPutFiled.isNullOrEmpty()) {
                 editTextCLOpath.setText(getSavedCLOImPutFiled)
@@ -503,11 +495,17 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             if (!getSavedEditTextInputSynUrlZip.isNullOrEmpty()) {
                 editTextInputSynUrlZip.setText(getSavedEditTextInputSynUrlZip)
+            }else{
+                editTextInputSynUrlZip.setText("https://cp.cloudappserver.co.uk/david/david.zip")
             }
 
             if (!getSaved_manaul_index_edit_url_Input.isNullOrEmpty()) {
                 editTextInputIndexManual.setText(getSaved_manaul_index_edit_url_Input)
+            }else{
+                editTextInputIndexManual.setText("https://cp.cloudappserver.co.uk/david/")
             }
+
+
 
             initViewTooggle()
 
@@ -517,13 +515,27 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             editor.remove(Constants.RetryCount)
             editor.apply()
 
+
+
+
+
+            constrainSelectSyncType.setOnClickListener {
+                showSelectedSyncType()
+            }
+
+
+
+
+
             textTestConnectionAPPer.setOnClickListener {
 
                 val editorTVMODE = sharedTVAPPModePreferences.edit()
-                editorTVMODE. putString(Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime)
+                editorTVMODE.putString(
+                    Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime
+                )
                 editorTVMODE.apply()
 
-                if (handlerMoveToWebviewPage != null){
+                if (handlerMoveToWebviewPage != null) {
                     handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                 }
 
@@ -543,11 +555,13 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             textDownloadZipSyncOrApiSyncNow.setOnClickListener {
 
                 val editorTVMODE = sharedTVAPPModePreferences.edit()
-                editorTVMODE. putString(Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime)
+                editorTVMODE.putString(
+                    Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime
+                )
                 editorTVMODE.apply()
 
 
-                if (handlerMoveToWebviewPage != null){
+                if (handlerMoveToWebviewPage != null) {
                     handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                 }
 
@@ -574,10 +588,12 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             textLauncheSaveDownload.setOnClickListener {
                 val editorTVMODE = sharedTVAPPModePreferences.edit()
-                editorTVMODE. putString(Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime)
+                editorTVMODE.putString(
+                    Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime
+                )
                 editorTVMODE.apply()
 
-                if (handlerMoveToWebviewPage != null){
+                if (handlerMoveToWebviewPage != null) {
                     handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                 }
 
@@ -590,17 +606,21 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                 try {
                     val editorTVMODE = sharedTVAPPModePreferences.edit()
-                    editorTVMODE. putString(Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime)
+                    editorTVMODE.putString(
+                        Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime
+                    )
                     editorTVMODE.apply()
 
 
-                    if (handlerMoveToWebviewPage != null){
+                    if (handlerMoveToWebviewPage != null) {
                         handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                     }
 
-                    val getStateNaviagtion = sharedBiometric.getString(Constants.CALL_RE_SYNC_MANGER, "")
+                    val getStateNaviagtion =
+                        sharedBiometric.getString(Constants.CALL_RE_SYNC_MANGER, "")
 
-                    val get_navigationS2222 = sharedBiometric.getString(Constants.SAVE_NAVIGATION, "")
+                    val get_navigationS2222 =
+                        sharedBiometric.getString(Constants.SAVE_NAVIGATION, "")
 
 
                     val editor = sharedBiometric.edit()
@@ -631,7 +651,8 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
                     }
-                }catch (e:Exception){}
+                } catch (e: Exception) {
+                }
 
             }
 
@@ -700,14 +721,13 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         // Set the background of the AlertDialog to be transparent
         if (alertDialog.window != null) {
             alertDialog.window!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
         }
 
 
         val consMainAlert_sub_layout = bindingCM.consMainAlertSubLayout
         val textLoading = bindingCM.textLoading
         val textLoading2 = bindingCM.textLoading2
-        val textCancel = bindingCM.textCancel
+        val textRetryAPiDn = bindingCM.textCancel
         val textUpdate = bindingCM.textUpdate
 
 
@@ -715,13 +735,13 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             consMainAlert_sub_layout.setBackgroundResource(R.drawable.card_design_account_number_dark_pop_layout)
 
             textLoading.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
-            textCancel.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
+            textRetryAPiDn.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
             textLoading2.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
             textUpdate.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
 
 
-            textCancel.setBackgroundResource(R.drawable.card_design_buy_gift_card_extra_dark_black)
-            textCancel.setBackgroundResource(R.drawable.card_design_darktheme_outline_pop_layout)
+            textRetryAPiDn.setBackgroundResource(R.drawable.card_design_buy_gift_card_extra_dark_black)
+            textRetryAPiDn.setBackgroundResource(R.drawable.card_design_darktheme_outline_pop_layout)
 
         }
 
@@ -731,7 +751,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
         bindingCM.textCancel.setOnClickListener {
 
-            if (handlerMoveToWebviewPage != null){
+            if (handlerMoveToWebviewPage != null) {
                 handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
             }
 
@@ -774,13 +794,12 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         // Set the background of the AlertDialog to be transparent
         if (alertDialog.window != null) {
             alertDialog.window!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
         }
 
         val consMainAlert_sub_layout = bindingCM.consMainAlertSubLayout
         val textLoading = bindingCM.textLoading
         val textLoading2 = bindingCM.textLoading2
-        val textCancel = bindingCM.textCancel
+        val textRetryAPiDn = bindingCM.textCancel
         val text_download_sync = bindingCM.textDownloadSync
 
 
@@ -789,12 +808,12 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             textLoading.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
             textLoading2.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
-            textCancel.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
+            textRetryAPiDn.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
             text_download_sync.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
 
             //  textLogoutButton.setBackgroundResource(R.drawable.card_design_darktheme_outline_pop_layout);
             text_download_sync.setBackgroundResource(R.drawable.card_design_buy_gift_card_extra_dark_black)
-            textCancel.setBackgroundResource(R.drawable.card_design_darktheme_outline_pop_layout)
+            textRetryAPiDn.setBackgroundResource(R.drawable.card_design_darktheme_outline_pop_layout)
 
         }
 
@@ -806,7 +825,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
         bindingCM.textDownloadSync.setOnClickListener {
-            if (handlerMoveToWebviewPage != null){
+            if (handlerMoveToWebviewPage != null) {
                 handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
             }
 
@@ -840,13 +859,12 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         // Set the background of the AlertDialog to be transparent
         if (alertDialog.window != null) {
             alertDialog.window!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
         }
 
 
         val consMainAlert_sub_layout = bindingCM.consMainAlertSubLayout
         val textLoading = bindingCM.teextDisplaydownload
-        val textCancel = bindingCM.textCancel
+        val textRetryAPiDn = bindingCM.textCancel
 
 
         val preferences = android.preference.PreferenceManager.getDefaultSharedPreferences(
@@ -857,10 +875,10 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             consMainAlert_sub_layout.setBackgroundResource(R.drawable.card_design_account_number_dark_pop_layout)
 
             textLoading.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
-            textCancel.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
+            textRetryAPiDn.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
 
             //  textLogoutButton.setBackgroundResource(R.drawable.card_design_darktheme_outline_pop_layout);
-            textCancel.setBackgroundResource(R.drawable.card_design_buy_gift_card_extra_dark_black)
+            textRetryAPiDn.setBackgroundResource(R.drawable.card_design_buy_gift_card_extra_dark_black)
 
         }
 
@@ -869,7 +887,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
         bindingCM.textCancel.setOnClickListener {
 
-            if (handlerMoveToWebviewPage != null){
+            if (handlerMoveToWebviewPage != null) {
                 handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
             }
 
@@ -877,7 +895,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             binding.imagSwtichEnableConfigFileOnline.isChecked = false
             binding.textConfigfileOnline.text = "Use online config"
 
-            lifecycleScope.launch (Dispatchers.IO){
+            lifecycleScope.launch(Dispatchers.IO) {
                 cancel_config_download(get_UserID, get_LicenseKey, ServerUrl)
             }
 
@@ -887,7 +905,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         }
 
 
-        lifecycleScope.launch (Dispatchers.IO){
+        lifecycleScope.launch(Dispatchers.IO) {
             downloadConfiGFile(get_UserID, get_LicenseKey, ServerUrl, Constants.Config)
         }
 
@@ -942,7 +960,8 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             val DeleteFolderPath = "/$Syn2AppLive/$get_UserID/$get_LicenseKey/$folderName/$fileName"
 
-            val directoryPath = Environment.getExternalStorageDirectory().absolutePath + "/Download/$DeleteFolderPath"
+            val directoryPath =
+                Environment.getExternalStorageDirectory().absolutePath + "/Download/$DeleteFolderPath"
             val file = File(directoryPath)
             delete(file)
 
@@ -969,13 +988,19 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
     }
 
 
-    private fun downloadConfiGFile(get_UserID: String, get_LicenseKey: String, url: String, fileName: String, ) {
+    private fun downloadConfiGFile(
+        get_UserID: String,
+        get_LicenseKey: String,
+        url: String,
+        fileName: String,
+    ) {
 
         val Syn2AppLive = Constants.Syn2AppLive
 
         val DeleteFolderPath = "/$Syn2AppLive/$get_UserID/$get_LicenseKey/$fileName"
 
-        val directoryPath = Environment.getExternalStorageDirectory().absolutePath + "/Download/$DeleteFolderPath"
+        val directoryPath =
+            Environment.getExternalStorageDirectory().absolutePath + "/Download/$DeleteFolderPath"
         val file = File(directoryPath)
         delete(file)
 
@@ -1024,7 +1049,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     c.getInt(c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)).toLong()
                 val dl_progress =
                     (bytes_downloaded.toDouble() / bytes_total.toDouble() * 100f).toInt()
-                progressBarPref.setProgress(dl_progress)
+                progressBarPref.progress = dl_progress
 
 
                 // Calculate the percentage of completion
@@ -1069,12 +1094,15 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 val finalFolderPath = "/$get_UserID/$get_LicenseKey"
 
                 val get_Clo = simpleSavedPassword.getString(Constants.get_UserID, "").toString()
-                val get_DEmo = simpleSavedPassword.getString(Constants.get_LicenseKey, "").toString()
+                val get_DEmo =
+                    simpleSavedPassword.getString(Constants.get_LicenseKey, "").toString()
 
                 val newConfigFolder = "/$get_Clo/$get_DEmo/App/"
 
-                val directoryPathString = Environment.getExternalStorageDirectory().absolutePath + "/Download/$Syn2AppLive" + finalFolderPath
-                val destinationFolder = File(Environment.getExternalStorageDirectory().absolutePath + "/Download/$Syn2AppLive/" + newConfigFolder)
+                val directoryPathString =
+                    Environment.getExternalStorageDirectory().absolutePath + "/Download/$Syn2AppLive" + finalFolderPath
+                val destinationFolder =
+                    File(Environment.getExternalStorageDirectory().absolutePath + "/Download/$Syn2AppLive/" + newConfigFolder)
 
                 if (!destinationFolder.exists()) {
                     destinationFolder.mkdirs()
@@ -1180,11 +1208,15 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
         try {
             val editorTVMODE = sharedTVAPPModePreferences.edit()
-            editorTVMODE. putString(Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime)
+            editorTVMODE.putString(
+                Constants.installTVModeForFirstTime, Constants.installTVModeForFirstTime
+            )
             editorTVMODE.apply()
 
-            val getStateNaviagtion = sharedBiometric.getString(Constants.CALL_RE_SYNC_MANGER, "").toString()
-            val get_navigationS2222 = sharedBiometric.getString(Constants.SAVE_NAVIGATION, "").toString()
+            val getStateNaviagtion =
+                sharedBiometric.getString(Constants.CALL_RE_SYNC_MANGER, "").toString()
+            val get_navigationS2222 =
+                sharedBiometric.getString(Constants.SAVE_NAVIGATION, "").toString()
 
             val editor = sharedBiometric.edit()
             if (getStateNaviagtion.equals(Constants.CALL_RE_SYNC_MANGER)) {
@@ -1211,7 +1243,8 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
             }
-        }catch (e:Exception){}
+        } catch (e: Exception) {
+        }
 
 
     }
@@ -1220,7 +1253,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         super.onResume()
 
         try {
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         } catch (ignored: java.lang.Exception) {
         }
@@ -1248,7 +1281,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
         try {
 
-            if (handlerMoveToWebviewPage != null){
+            if (handlerMoveToWebviewPage != null) {
                 handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
             }
 
@@ -1290,8 +1323,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     ContextCompat.getDrawable(applicationContext, R.drawable.ic_close_24)
                 drawable_imgCloseDialog?.setColorFilter(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.white
+                        applicationContext, R.color.white
                     ), PorterDuff.Mode.SRC_IN
                 )
                 imgCloseDialog.setImageDrawable(drawable_imgCloseDialog)
@@ -1300,25 +1332,22 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     ContextCompat.getDrawable(applicationContext, R.drawable.ic_download_24)
                 drawable_imagSucessfulg?.setColorFilter(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.white
+                        applicationContext, R.color.white
                     ), PorterDuff.Mode.SRC_IN
                 )
                 imagSucessful.setImageDrawable(drawable_imagSucessfulg)
 
                 val colorWhite = ContextCompat.getColor(applicationContext, R.color.white)
                 progressBar2.indeterminateDrawable.setColorFilter(
-                    colorWhite,
-                    PorterDuff.Mode.SRC_IN
+                    colorWhite, PorterDuff.Mode.SRC_IN
                 )
 
 
             }
 
 
-
             binding.imgCloseDialog.setOnClickListener {
-                if (handlerMoveToWebviewPage != null){
+                if (handlerMoveToWebviewPage != null) {
                     handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                 }
 
@@ -1349,12 +1378,8 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                                 CP_server -> {
                                     if (getFolderClo.isNotEmpty() && getFolderSubpath.isNotEmpty()) {
                                         httpNetworkTester(getFolderClo, getFolderSubpath)
-                                        editor.putString(
-                                            Constants.getSavedCLOImPutFiled, getFolderClo
-                                        )
-                                        editor.putString(
-                                            Constants.getSaveSubFolderInPutFiled, getFolderSubpath
-                                        )
+                                        editor.putString(Constants.getSavedCLOImPutFiled, getFolderClo)
+                                        editor.putString(Constants.getSaveSubFolderInPutFiled, getFolderSubpath)
                                         editor.apply()
 
                                     } else {
@@ -1380,12 +1405,10 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         // let consider Custom Domain was selected
 
                         val getFolderClo222 = binding.editTextCLOpath.text.toString().trim()
-                        val getFolderSubpath22 =
-                            binding.editTextSubPathFolder.text.toString().trim()
+                        val getFolderSubpath22 = binding.editTextSubPathFolder.text.toString().trim()
 
 
-                        var Saved_Domains_Urls =
-                            myDownloadClass.getString(Constants.Saved_Domains_Urls, "").toString()
+                        var Saved_Domains_Urls = myDownloadClass.getString(Constants.Saved_Domains_Urls, "").toString()
 
 
                         if (Saved_Domains_Urls.isNotEmpty()) {
@@ -1393,9 +1416,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                             if (getFolderClo222.isNotEmpty() && getFolderSubpath22.isNotEmpty()) {
                                 testConnectionSetup_API_Test(getFolderClo222, getFolderSubpath22)
                                 editor.putString(Constants.getSavedCLOImPutFiled, getFolderClo222)
-                                editor.putString(
-                                    Constants.getSaveSubFolderInPutFiled, getFolderSubpath22
-                                )
+                                editor.putString(Constants.getSaveSubFolderInPutFiled, getFolderSubpath22)
                                 editor.apply()
 
                             } else {
@@ -1424,9 +1445,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         httpNetSingleUrlTest(editInputUrl, editInputAppIndex)
 
                         editor.putString(Constants.getSavedEditTextInputSynUrlZip, editInputUrl)
-                        editor.putString(
-                            Constants.getSaved_manaul_index_edit_url_Input, editInputAppIndex
-                        )
+                        editor.putString(Constants.getSaved_manaul_index_edit_url_Input, editInputAppIndex)
                         editor.apply()
                     } else {
 
@@ -1457,11 +1476,14 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         handler.postDelayed(Runnable {
             showCustomProgressDialog("Testing connection")
             val myDownloadClass = getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
-            val CP_AP_MASTER_DOMAIN = myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
+            val CP_AP_MASTER_DOMAIN =
+                myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
 
-            if (binding.imagSwtichEnableSyncFromAPI.isChecked) {
-                val baseUrl =
-                    "${CP_AP_MASTER_DOMAIN}/$getFolderClo/$getFolderSubpath/Zip/App.zip"
+            val getSyncMethods =
+                sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
+
+            if (getSyncMethods == Constants.USE_ZIP_SYNC) {
+                val baseUrl = "${CP_AP_MASTER_DOMAIN}/$getFolderClo/$getFolderSubpath/Zip/App.zip"
                 lifecycleScope.launch {
                     try {
                         val result = checkUrlExistence(baseUrl)
@@ -1493,7 +1515,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     }
                 }
 
-            } else {
+            } else if (getSyncMethods == Constants.USE_API_SYNC) {
 
 
                 val baseUrl = "${CP_AP_MASTER_DOMAIN}/$getFolderClo/$getFolderSubpath/App/index.html"
@@ -1513,19 +1535,88 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                                 EditUrlIndex = ""
                             )
                             mUserViewModel.addUser(user)
-                            customProgressDialog.dismiss()
+
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+
 
                         } else {
                             showPopsForMyConnectionTest(
                                 getFolderClo, getFolderSubpath, "Failed!"
                             )
+
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+
+
+                        }
+                    } catch (e:Exception){
+
+                        showPopsForMyConnectionTest(
+                            getFolderClo, getFolderSubpath, "Failed!"
+                        )
+
+                        if (customProgressDialog != null){
                             customProgressDialog.dismiss()
                         }
-                    } finally {
-                        //  customProgressDialog.dismiss()
+
                     }
                 }
 
+
+            }else if (getSyncMethods == Constants.USE_PARSING_SYNC) {
+
+
+                val baseUrl = "${CP_AP_MASTER_DOMAIN}/$getFolderClo/$getFolderSubpath/App/index.html"
+                lifecycleScope.launch {
+                    try {
+                        val result = checkUrlExistence(baseUrl)
+                        if (result) {
+
+                            showPopsForMyConnectionTest(
+                                getFolderClo, getFolderSubpath, "Successful"
+                            )
+
+                            // save also to room data base
+                            val user = User(
+                                CLO = getFolderClo,
+                                DEMO = getFolderSubpath,
+                                EditUrl = "",
+                                EditUrlIndex = ""
+                            )
+                            mUserViewModel.addUser(user)
+
+
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+
+
+                        } else {
+                            showPopsForMyConnectionTest(
+                                getFolderClo, getFolderSubpath, "Failed!"
+                            )
+
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+                        }
+
+
+                    } catch (e:Exception){
+
+                        showPopsForMyConnectionTest(
+                            getFolderClo, getFolderSubpath, "Failed!"
+                        )
+
+                        if (customProgressDialog != null){
+                            customProgressDialog.dismiss()
+                        }
+
+                    }
+                }
 
             }
 
@@ -1618,7 +1709,8 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
             val imgLunchOnline = sharedBiometric.getString(Constants.imgAllowLunchFromOnline, "")
-            imagSwtichEnableLaucngOnline.isChecked = imgLunchOnline.equals(Constants.imgAllowLunchFromOnline)
+            imagSwtichEnableLaucngOnline.isChecked =
+                imgLunchOnline.equals(Constants.imgAllowLunchFromOnline)
 
             val editor333 = myDownloadClass.edit()
 
@@ -1631,47 +1723,51 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             } else {
 
                 textLunchOnline.text = "Launch offline"
-                editor333.putString(Constants.Tapped_OnlineORoffline, Constants.tapped_launchOffline)
+                editor333.putString(
+                    Constants.Tapped_OnlineORoffline, Constants.tapped_launchOffline
+                )
                 editor333.apply()
             }
 
             imagSwtichEnableLaucngOnline.setOnCheckedChangeListener { compoundButton, isValued -> // we are putting the values into SHARED PREFERENCE
-                try{
-                if (handlerMoveToWebviewPage != null){
-                    handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
+                try {
+                    if (handlerMoveToWebviewPage != null) {
+                        handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
+                    }
+
+                    val editor = sharedBiometric.edit()
+                    hideKeyBoard(binding.editTextInputSynUrlZip)
+                    if (compoundButton.isChecked) {
+
+                        editor.putString(
+                            Constants.imgAllowLunchFromOnline, "imgAllowLunchFromOnline"
+                        )
+                        editor.apply()
+
+                        textLunchOnline.text = "Launch online"
+
+                        editor333.putString(
+                            Constants.Tapped_OnlineORoffline, Constants.tapped_launchOnline
+                        )
+                        editor333.apply()
+
+                    } else {
+
+                        editor.remove("imgAllowLunchFromOnline")
+                        editor.apply()
+
+                        textLunchOnline.text = "Launch offline"
+
+                        editor333.putString(
+                            Constants.Tapped_OnlineORoffline, Constants.tapped_launchOffline
+                        )
+                        editor333.apply()
+
+                    }
+
+                } catch (e: Exception) {
+                    Log.d(TAG_RSYC, "initViewTooggle: ${e.message.toString()}")
                 }
-
-                val editor = sharedBiometric.edit()
-                hideKeyBoard(binding.editTextInputSynUrlZip)
-                if (compoundButton.isChecked) {
-
-                    editor.putString(Constants.imgAllowLunchFromOnline, "imgAllowLunchFromOnline")
-                    editor.apply()
-
-                    textLunchOnline.text = "Launch online"
-
-                    editor333.putString(
-                        Constants.Tapped_OnlineORoffline, Constants.tapped_launchOnline
-                    )
-                    editor333.apply()
-
-                } else {
-
-                    editor.remove("imgAllowLunchFromOnline")
-                    editor.apply()
-
-                    textLunchOnline.text = "Launch offline"
-
-                    editor333.putString(
-                        Constants.Tapped_OnlineORoffline, Constants.tapped_launchOffline
-                    )
-                    editor333.apply()
-
-                }
-
-            }catch (e:Exception){
-            Log.d(TAG_RSYC, "initViewTooggle: ${e.message.toString()}")
-        }
 
 
             }
@@ -1681,8 +1777,10 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             // enable satrt file for first synct
 
-            val startFileFirstSync = sharedBiometric.getString(Constants.imgStartFileFirstSync, "").toString()
-            imgStartFileFirstSync.isChecked = startFileFirstSync.equals(Constants.imgStartFileFirstSync)
+            val startFileFirstSync =
+                sharedBiometric.getString(Constants.imgStartFileFirstSync, "").toString()
+            imgStartFileFirstSync.isChecked =
+                startFileFirstSync.equals(Constants.imgStartFileFirstSync)
 
 
             if (startFileFirstSync.equals(Constants.imgStartFileFirstSync)) {
@@ -1695,7 +1793,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             imgStartFileFirstSync.setOnCheckedChangeListener { compoundButton, isValued -> // we are putting the values into SHARED PREFERENCE
 
                 try {
-                    if (handlerMoveToWebviewPage != null){
+                    if (handlerMoveToWebviewPage != null) {
                         handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                     }
 
@@ -1714,7 +1812,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         textUseStartFile.text = "Use start file off"
 
                     }
-                }catch (e:Exception){
+                } catch (e: Exception) {
                     Log.d(TAG_RSYC, "initViewTooggle: ${e.message.toString()}")
                 }
             }
@@ -1724,7 +1822,9 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             // set up toggle for index file change
             // set up toggle for index file change
 
-            val get_imagSwtichUseIndexCahngeOrTimeStamp = sharedBiometric.getString(Constants.imagSwtichUseIndexCahngeOrTimeStamp, "").toString()
+            val get_imagSwtichUseIndexCahngeOrTimeStamp =
+                sharedBiometric.getString(Constants.imagSwtichUseIndexCahngeOrTimeStamp, "")
+                    .toString()
             imagSwtichUseIndexCahngeOrTimeStamp.isChecked =
                 get_imagSwtichUseIndexCahngeOrTimeStamp.equals(Constants.imagSwtichUseIndexCahngeOrTimeStamp)
 
@@ -1738,67 +1838,72 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
             imagSwtichUseIndexCahngeOrTimeStamp.setOnCheckedChangeListener { compoundButton, isValued ->
-             try {
+                try {
 
-                 val editor = sharedBiometric.edit()
-                 if (compoundButton.isChecked) {
-                     editor.putString(
-                         Constants.imagSwtichUseIndexCahngeOrTimeStamp,
-                         Constants.imagSwtichUseIndexCahngeOrTimeStamp
-                     )
-                     editor.apply()
-                     textUseindexChangeOrTimestamp.setText("Use Index Change")
+                    val editor = sharedBiometric.edit()
+                    if (compoundButton.isChecked) {
+                        editor.putString(
+                            Constants.imagSwtichUseIndexCahngeOrTimeStamp,
+                            Constants.imagSwtichUseIndexCahngeOrTimeStamp
+                        )
+                        editor.apply()
+                        textUseindexChangeOrTimestamp.text = "Use Index Change"
 
-                 } else {
+                    } else {
 
-                     if (handlerMoveToWebviewPage != null){
-                         handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
-                     }
+                        if (handlerMoveToWebviewPage != null) {
+                            handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
+                        }
 
-                     editor.remove(Constants.imagSwtichUseIndexCahngeOrTimeStamp)
-                     editor.apply()
-                     textUseindexChangeOrTimestamp.text = "Use Time Stamp"
+                        editor.remove(Constants.imagSwtichUseIndexCahngeOrTimeStamp)
+                        editor.apply()
+                        textUseindexChangeOrTimestamp.text = "Use Time Stamp"
 
-                     if (handlerMoveToWebviewPage != null){
-                         handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
-                     }
-                     hideKeyBoard(binding.editTextInputSynUrlZip)
-                     val editor = sharedBiometric.edit()
-                     if (compoundButton.isChecked) {
-                         editor.putString(Constants.imagSwtichPartnerUrl, Constants.imagSwtichPartnerUrl)
-                         editor.apply()
-                         textPartnerUrlLunch.setText("Select Partner Url")
-
-
-                         val Saved_Parthner_Name111 = myDownloadClass.getString(Constants.Saved_Parthner_Name, "")
-                         if (Saved_Parthner_Name111!!.isNotEmpty()) {
-                             texturlsViews.setText(Saved_Parthner_Name111)
-                             getUrlBasedOnSpinnerText = Saved_Parthner_Name111
-
-                         } else {
-                             texturlsViews.setText("Select Partner Url")
-                         }
+                        if (handlerMoveToWebviewPage != null) {
+                            handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
+                        }
+                        hideKeyBoard(binding.editTextInputSynUrlZip)
+                        val editor = sharedBiometric.edit()
+                        if (compoundButton.isChecked) {
+                            editor.putString(
+                                Constants.imagSwtichPartnerUrl, Constants.imagSwtichPartnerUrl
+                            )
+                            editor.apply()
+                            textPartnerUrlLunch.text = "Select Partner Url"
 
 
-                     } else {
+                            val Saved_Parthner_Name111 =
+                                myDownloadClass.getString(Constants.Saved_Parthner_Name, "")
+                            if (Saved_Parthner_Name111!!.isNotEmpty()) {
+                                texturlsViews.text = Saved_Parthner_Name111
+                                getUrlBasedOnSpinnerText = Saved_Parthner_Name111
 
-                         editor.remove(Constants.imagSwtichPartnerUrl)
-                         editor.apply()
-                         textPartnerUrlLunch.setText("Select Custom Domain")
+                            } else {
+                                texturlsViews.text = "Select Partner Url"
+                            }
 
 
-                         val get_Saved_Domains_Name111 = myDownloadClass.getString(Constants.Saved_Domains_Name, "")
-                         if (get_Saved_Domains_Name111!!.isNotEmpty()) {
-                             texturlsViews.setText(get_Saved_Domains_Name111)
+                        } else {
 
-                         } else {
-                             texturlsViews.setText("Select Custom Domain")
-                         }
+                            editor.remove(Constants.imagSwtichPartnerUrl)
+                            editor.apply()
+                            textPartnerUrlLunch.text = "Select Custom Domain"
 
-                     }
 
-                 }
-             }catch (_:Exception){}
+                            val get_Saved_Domains_Name111 =
+                                myDownloadClass.getString(Constants.Saved_Domains_Name, "")
+                            if (get_Saved_Domains_Name111!!.isNotEmpty()) {
+                                texturlsViews.text = get_Saved_Domains_Name111
+
+                            } else {
+                                texturlsViews.text = "Select Custom Domain"
+                            }
+
+                        }
+
+                    }
+                } catch (_: Exception) {
+                }
             }
 
             // set the toggle by default
@@ -1807,14 +1912,21 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                 val editor = sharedBiometric.edit()
                 val get_check_if_index_chnage_is_enabled =
-                    sharedBiometric.getString(Constants.check_if_index_chnage_is_enabled, "").toString()
+                    sharedBiometric.getString(Constants.check_if_index_chnage_is_enabled, "")
+                        .toString()
 
                 if (get_check_if_index_chnage_is_enabled.isNullOrEmpty()) {
                     imagSwtichUseIndexCahngeOrTimeStamp.isChecked = true
-                    editor.putString(Constants.imagSwtichUseIndexCahngeOrTimeStamp, Constants.imagSwtichUseIndexCahngeOrTimeStamp)
-                    editor.putString(Constants.check_if_index_chnage_is_enabled, Constants.check_if_index_chnage_is_enabled)
+                    editor.putString(
+                        Constants.imagSwtichUseIndexCahngeOrTimeStamp,
+                        Constants.imagSwtichUseIndexCahngeOrTimeStamp
+                    )
+                    editor.putString(
+                        Constants.check_if_index_chnage_is_enabled,
+                        Constants.check_if_index_chnage_is_enabled
+                    )
                     editor.apply()
-                    textUseindexChangeOrTimestamp.setText("Use Index Change")
+                    textUseindexChangeOrTimestamp.text = "Use Index Change"
 
                 }
 
@@ -1826,50 +1938,58 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             // enable config
             // enable config
 
-            val imgLCongigFile = sharedBiometric.getString(Constants.imagSwtichEnableConfigFileOnline, "").toString()
-            imagSwtichEnableConfigFileOnline.isChecked = imgLCongigFile.equals(Constants.imagSwtichEnableConfigFileOnline)
+            val imgLCongigFile =
+                sharedBiometric.getString(Constants.imagSwtichEnableConfigFileOnline, "").toString()
+            imagSwtichEnableConfigFileOnline.isChecked =
+                imgLCongigFile.equals(Constants.imagSwtichEnableConfigFileOnline)
 
 
             if (imgLCongigFile.equals(Constants.imagSwtichEnableConfigFileOnline)) {
-                textConfigfileOnline.setText("Config File Offline")
+                textConfigfileOnline.text = "Config File Offline"
             } else {
-                textConfigfileOnline.setText("Config File Online")
+                textConfigfileOnline.text = "Config File Online"
             }
 
 
             imagSwtichEnableConfigFileOnline.setOnCheckedChangeListener { compoundButton, isValued ->
-               try{
-                if (handlerMoveToWebviewPage != null){
-                    handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
+                try {
+                    if (handlerMoveToWebviewPage != null) {
+                        handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
+                    }
+
+
+                    val editor = sharedBiometric.edit()
+                    if (compoundButton.isChecked) {
+                        editor.putString(
+                            Constants.imagSwtichEnableConfigFileOnline,
+                            "imagSwtichEnableConfigFileOnline"
+                        )
+                        editor.apply()
+                        textConfigfileOnline.text = "Config File Offline"
+                    } else {
+
+                        editor.remove("imagSwtichEnableConfigFileOnline")
+                        editor.apply()
+
+                        textConfigfileOnline.text = "Config File Online"
+                    }
+                } catch (_: Exception) {
                 }
-
-
-                val editor = sharedBiometric.edit()
-                if (compoundButton.isChecked) {
-                    editor.putString(Constants.imagSwtichEnableConfigFileOnline, "imagSwtichEnableConfigFileOnline")
-                    editor.apply()
-                    textConfigfileOnline.setText("Config File Offline")
-                } else {
-
-                    editor.remove("imagSwtichEnableConfigFileOnline")
-                    editor.apply()
-
-                    textConfigfileOnline.setText("Config File Online")
-                }
-               }catch (_:Exception){}
             }
 
 
             // enable Sync on File Change
 
-            val imgEnableFileOnSyncChange = sharedBiometric.getString(Constants.imagSwtichEnableSyncOnFilecahnge, "").toString()
-            imagSwtichEnableSyncOnFilecahnge.isChecked = imgEnableFileOnSyncChange.equals(Constants.imagSwtichEnableSyncOnFilecahnge)
+            val imgEnableFileOnSyncChange =
+                sharedBiometric.getString(Constants.imagSwtichEnableSyncOnFilecahnge, "").toString()
+            imagSwtichEnableSyncOnFilecahnge.isChecked =
+                imgEnableFileOnSyncChange.equals(Constants.imagSwtichEnableSyncOnFilecahnge)
 
 
             if (imgEnableFileOnSyncChange.equals(Constants.imagSwtichEnableSyncOnFilecahnge)) {
-                textSyncOnFileChangeIntervals.setText("Download on Intervals")
+                textSyncOnFileChangeIntervals.text = "Download on Intervals"
             } else {
-                textSyncOnFileChangeIntervals.setText("Download on change")
+                textSyncOnFileChangeIntervals.text = "Download on change"
 
             }
 
@@ -1880,7 +2000,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             imagSwtichEnableSyncOnFilecahnge.setOnCheckedChangeListener { compoundButton, isValued ->
 
                 try {
-                    if (handlerMoveToWebviewPage != null){
+                    if (handlerMoveToWebviewPage != null) {
                         handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                     }
 
@@ -1898,12 +2018,15 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
                     if (compoundButton.isChecked) {
-                        editor.putString(Constants.imagSwtichEnableSyncOnFilecahnge, Constants.imagSwtichEnableSyncOnFilecahnge)
+                        editor.putString(
+                            Constants.imagSwtichEnableSyncOnFilecahnge,
+                            Constants.imagSwtichEnableSyncOnFilecahnge
+                        )
 
                         // editor.putString(Constants.showDownloadSyncStatus, "showDownloadSyncStatus")
 
                         editor.apply()
-                        textSyncOnFileChangeIntervals.setText("Download on Intervals")
+                        textSyncOnFileChangeIntervals.text = "Download on Intervals"
 
 
                         // if the user switch to use sync on change, then we need to manage with Api or Url Zip
@@ -1915,31 +2038,32 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         editor22.remove(Constants.imagSwtichEnableSyncOnFilecahnge)
                         editor22.apply()
 
-                        textSyncOnFileChangeIntervals.setText("Download on change")
-
-
+                        textSyncOnFileChangeIntervals.text = "Download on change"
 
 
                     }
-                }catch (_:Exception){}
+                } catch (_: Exception) {
+                }
             }
 
 
             // enable Toggle Mode
 
-            val imgEnableToggleMode = sharedBiometric.getString(Constants.imagSwtichEnablEnableToggleOrNot, "").toString()
-            imagSwtichEnablEnableToggleOrNot.isChecked = imgEnableToggleMode.equals(Constants.imagSwtichEnablEnableToggleOrNot)
+            val imgEnableToggleMode =
+                sharedBiometric.getString(Constants.imagSwtichEnablEnableToggleOrNot, "").toString()
+            imagSwtichEnablEnableToggleOrNot.isChecked =
+                imgEnableToggleMode.equals(Constants.imagSwtichEnablEnableToggleOrNot)
 
             if (imgEnableToggleMode.equals(Constants.imagSwtichEnablEnableToggleOrNot)) {
-                textToogleMode.setText("Disable Test Toggle Mode")
+                textToogleMode.text = "Disable Test Toggle Mode"
             } else {
-                textToogleMode.setText("Enable Test Toggle Mode")
+                textToogleMode.text = "Enable Test Toggle Mode"
             }
 
             imagSwtichEnablEnableToggleOrNot.setOnCheckedChangeListener { compoundButton, isValued ->
 
                 try {
-                    if (handlerMoveToWebviewPage != null){
+                    if (handlerMoveToWebviewPage != null) {
                         handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                     }
                     val editor = sharedBiometric.edit()
@@ -1949,15 +2073,16 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                             Constants.imagSwtichEnablEnableToggleOrNot
                         )
                         editor.apply()
-                        textToogleMode.setText("Disable Test Toggle Mode")
+                        textToogleMode.text = "Disable Test Toggle Mode"
                     } else {
 
                         editor.remove(Constants.imagSwtichEnablEnableToggleOrNot)
                         editor.apply()
 
-                        textToogleMode.setText("Enable Test Toggle Mode")
+                        textToogleMode.text = "Enable Test Toggle Mode"
                     }
-                }catch (e:Exception){}
+                } catch (e: Exception) {
+                }
             }
 
 
@@ -1969,16 +2094,23 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             imageEnablePartherOrmasterDomain()
 
+            initToggleUseZipSyncOrApI()
 
-            val get_imagSwtichEnableSyncFromAPI = sharedBiometric.getString(Constants.imagSwtichEnableSyncFromAPI, "").toString()
-            imagSwtichEnableSyncFromAPI.isChecked = get_imagSwtichEnableSyncFromAPI.equals(Constants.imagSwtichEnableSyncFromAPI)
+        }
 
-            if (!preferences!!.getBoolean("darktheme", false)) {
-                if (get_imagSwtichEnableSyncFromAPI.equals(Constants.imagSwtichEnableSyncFromAPI)) {
-                    textSynfromApiZip.text = "Use ZIP Sync"
-                    editTextInputSynUrlZip.setHint("Input url  ZIP Sync")
+
+    }
+
+    private fun initToggleUseZipSyncOrApI() {
+        binding.apply {
+            val getSyncMethods = sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
+
+            if (!preferences.getBoolean("darktheme", false)) {
+                if (getSyncMethods == Constants.USE_ZIP_SYNC) {
+
+                    editTextInputSynUrlZip.hint = "Input url  ZIP Sync"
                     textDownloadZipSyncOrApiSyncNow.text = "Connect ZIP Sync"
-
+                    textDisplaySelectedSyncType.text = "Use ZIP Sync"
 
                     textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.card_design_buy_gift_card)
                     textDownloadZipSyncOrApiSyncNow.setTextColor(
@@ -1988,11 +2120,12 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     )
 
 
-                } else {
+                } else if (getSyncMethods == Constants.USE_API_SYNC) {
 
-                    textSynfromApiZip.text = "Use API Sync"
                     textDownloadZipSyncOrApiSyncNow.text = "Connect API Sync"
-                    editTextInputSynUrlZip.setHint("Input url  API Sync")
+                    editTextInputSynUrlZip.hint = "Input url  API Sync"
+
+                    textDisplaySelectedSyncType.text = "Use API Sync"
 
                     textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.light_background_blue_color)
                     textDownloadZipSyncOrApiSyncNow.setTextColor(
@@ -2002,87 +2135,115 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     )
 
 
+                } else if (getSyncMethods == Constants.USE_PARSING_SYNC) {
+
+
+                    textDownloadZipSyncOrApiSyncNow.text = "Connect Parsing Sync"
+                    editTextInputSynUrlZip.hint = "Input url  Parsing Sync"
+                    textDisplaySelectedSyncType.text = "Use Parsing Sync"
+
+                    textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.light_background_green_color)
+                    textDownloadZipSyncOrApiSyncNow.setTextColor(
+                        ContextCompat.getColor(
+                            applicationContext, R.color.white
+                        )
+                    )
+
+
+                } else if (getSyncMethods == Constants.USE_FTP_SYNC) {
+
+
+                    textDownloadZipSyncOrApiSyncNow.text = "Connect FTP Sync"
+                    editTextInputSynUrlZip.hint = "Input url  FTP Sync"
+                    textDisplaySelectedSyncType.text = "Use FTP Sync"
+
+                    textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.light_background_red_color)
+                    textDownloadZipSyncOrApiSyncNow.setTextColor(
+                        ContextCompat.getColor(
+                            applicationContext, R.color.white
+                        )
+                    )
+
+
                 }
 
-            }
-
-
-
-            imagSwtichEnableSyncFromAPI.setOnCheckedChangeListener { compoundButton, isValued ->
-
-               try {
-                   if (handlerMoveToWebviewPage != null){
-                       handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
-                   }
-
-                   val editorDN = myDownloadClass.edit()
-                   editorDN.remove(Constants.SynC_Status)
-                   editorDN.remove(Constants.textDownladByes)
-                   editorDN.remove(Constants.progressBarPref)
-                   editorDN.remove(Constants.progressBarPref)
-                   editorDN.remove(Constants.filesChange)
-                   editorDN.remove(Constants.numberOfFiles)
-
-                   editorDN.apply()
-
-
-                   val editor = sharedBiometric.edit()
-                   hideKeyBoard(binding.editTextInputSynUrlZip)
-
-                   if (compoundButton.isChecked) {
-                       editor.putString(
-                           Constants.imagSwtichEnableSyncFromAPI,
-                           Constants.imagSwtichEnableSyncFromAPI
-                       )
-                       editor.apply()
-                       textSynfromApiZip.setText("Use ZIP Sync")
-                       editTextInputSynUrlZip.setHint("Input url  ZIP Sync")
-                       textDownloadZipSyncOrApiSyncNow.setText("Connect ZIP Sync")
-
-
-                       if (!preferences.getBoolean("darktheme", false)) {
-                           textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.card_design_buy_gift_card)
-                           textDownloadZipSyncOrApiSyncNow.setTextColor(
-                               ContextCompat.getColor(
-                                   applicationContext, R.color.white
-                               )
-                           )
-
-                       }
-
-
-
-
-                   } else {
-
-
-                       editor.remove(Constants.imagSwtichEnableSyncFromAPI)
-                       editor.apply()
-
-                       textSynfromApiZip.setText("Use API Sync")
-                       textDownloadZipSyncOrApiSyncNow.setText("Connect API Sync")
-                       editTextInputSynUrlZip.setHint("Input url  API Sync")
-
-                       if (!preferences.getBoolean("darktheme", false)) {
-
-                           textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.light_background_blue_color)
-                           textDownloadZipSyncOrApiSyncNow.setTextColor(
-                               ContextCompat.getColor(
-                                   applicationContext, R.color.deep_blue
-                               )
-                           )
-                       }
-
-
-                   }
-               }catch (_:Exception){}
 
             }
+
+
+            /*     imagSwtichEnableSyncFromAPI.setOnCheckedChangeListener { compoundButton, isValued ->
+
+                     try {
+                         if (handlerMoveToWebviewPage != null) {
+                             handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
+                         }
+
+                         val editorDN = myDownloadClass.edit()
+                         editorDN.remove(Constants.SynC_Status)
+                         editorDN.remove(Constants.textDownladByes)
+                         editorDN.remove(Constants.progressBarPref)
+                         editorDN.remove(Constants.progressBarPref)
+                         editorDN.remove(Constants.filesChange)
+                         editorDN.remove(Constants.numberOfFiles)
+
+                         editorDN.apply()
+
+
+                         val editor = sharedBiometric.edit()
+                         hideKeyBoard(binding.editTextInputSynUrlZip)
+
+                         if (compoundButton.isChecked) {
+                             editor.putString(
+                                 Constants.IMG_SELECTED_SYNC_METHOD,
+                                 Constants.IMG_SELECTED_SYNC_METHOD
+                             )
+                             editor.apply()
+                             textSynfromApiZip.setText("Use ZIP Sync")
+                             editTextInputSynUrlZip.setHint("Input url  ZIP Sync")
+                             textDownloadZipSyncOrApiSyncNow.setText("Connect ZIP Sync")
+
+
+                             if (!preferences.getBoolean("darktheme", false)) {
+                                 textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.card_design_buy_gift_card)
+                                 textDownloadZipSyncOrApiSyncNow.setTextColor(
+                                     ContextCompat.getColor(
+                                         applicationContext, R.color.white
+                                     )
+                                 )
+
+                             }
+
+
+                         } else {
+
+
+                             editor.remove(Constants.IMG_SELECTED_SYNC_METHOD)
+                             editor.apply()
+
+                             textSynfromApiZip.setText("Use API Sync")
+                             textDownloadZipSyncOrApiSyncNow.setText("Connect API Sync")
+                             editTextInputSynUrlZip.setHint("Input url  API Sync")
+
+                             if (!preferences.getBoolean("darktheme", false)) {
+
+                                 textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.light_background_blue_color)
+                                 textDownloadZipSyncOrApiSyncNow.setTextColor(
+                                     ContextCompat.getColor(
+                                         applicationContext, R.color.deep_blue
+                                     )
+                                 )
+                             }
+
+
+                         }
+                     } catch (_: Exception) {
+                     }
+
+                 }
+     */
 
 
         }
-
-
     }
 
     private fun imageEnablePartherOrmasterDomain() {
@@ -2090,35 +2251,38 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         binding.apply {
             //// logic for Select Partner Url
 
-            val imagPartnerurl = sharedBiometric.getString(Constants.imagSwtichPartnerUrl, "").toString()
+            val imagPartnerurl =
+                sharedBiometric.getString(Constants.imagSwtichPartnerUrl, "").toString()
             imagSwtichPartnerUrl.isChecked = imagPartnerurl.equals(Constants.imagSwtichPartnerUrl)
 
-            val get_Saved_Domains_Name = myDownloadClass.getString(Constants.Saved_Domains_Name, "").toString()
-            val Saved_Parthner_Name = myDownloadClass.getString(Constants.Saved_Parthner_Name, "").toString()
+            val get_Saved_Domains_Name =
+                myDownloadClass.getString(Constants.Saved_Domains_Name, "").toString()
+            val Saved_Parthner_Name =
+                myDownloadClass.getString(Constants.Saved_Parthner_Name, "").toString()
 
             if (imagPartnerurl.equals(Constants.imagSwtichPartnerUrl)) {
-                textPartnerUrlLunch.setText("Select Partner Url")
+                textPartnerUrlLunch.text = "Select Partner Url"
 
 
                 if (Saved_Parthner_Name.isNotEmpty()) {
-                    texturlsViews.setText(Saved_Parthner_Name)
+                    texturlsViews.text = Saved_Parthner_Name
                     getUrlBasedOnSpinnerText = Saved_Parthner_Name
 
                 } else {
-                    texturlsViews.setText("Select Partner Url")
+                    texturlsViews.text = "Select Partner Url"
                 }
 
 
             } else {
-                textPartnerUrlLunch.setText("Select Custom Domain")
+                textPartnerUrlLunch.text = "Select Custom Domain"
 
 
 
-                if (get_Saved_Domains_Name!!.isNotEmpty()) {
-                    texturlsViews.setText(get_Saved_Domains_Name)
+                if (get_Saved_Domains_Name.isNotEmpty()) {
+                    texturlsViews.text = get_Saved_Domains_Name
 
                 } else {
-                    texturlsViews.setText("Select Custom Domain")
+                    texturlsViews.text = "Select Custom Domain"
                 }
 
 
@@ -2129,24 +2293,27 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             imagSwtichPartnerUrl.setOnCheckedChangeListener { compoundButton, isValued ->
 
                 try {
-                    if (handlerMoveToWebviewPage != null){
+                    if (handlerMoveToWebviewPage != null) {
                         handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                     }
                     hideKeyBoard(binding.editTextInputSynUrlZip)
                     val editor = sharedBiometric.edit()
                     if (compoundButton.isChecked) {
-                        editor.putString(Constants.imagSwtichPartnerUrl, Constants.imagSwtichPartnerUrl)
+                        editor.putString(
+                            Constants.imagSwtichPartnerUrl, Constants.imagSwtichPartnerUrl
+                        )
                         editor.apply()
-                        textPartnerUrlLunch.setText("Select Partner Url")
+                        textPartnerUrlLunch.text = "Select Partner Url"
 
 
-                        val Saved_Parthner_Name111 = myDownloadClass.getString(Constants.Saved_Parthner_Name, "")
+                        val Saved_Parthner_Name111 =
+                            myDownloadClass.getString(Constants.Saved_Parthner_Name, "")
                         if (Saved_Parthner_Name111!!.isNotEmpty()) {
-                            texturlsViews.setText(Saved_Parthner_Name111)
+                            texturlsViews.text = Saved_Parthner_Name111
                             getUrlBasedOnSpinnerText = Saved_Parthner_Name111
 
                         } else {
-                            texturlsViews.setText("Select Partner Url")
+                            texturlsViews.text = "Select Partner Url"
                         }
 
 
@@ -2154,20 +2321,22 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                         editor.remove(Constants.imagSwtichPartnerUrl)
                         editor.apply()
-                        textPartnerUrlLunch.setText("Select Custom Domain")
+                        textPartnerUrlLunch.text = "Select Custom Domain"
 
 
-                        val get_Saved_Domains_Name111 = myDownloadClass.getString(Constants.Saved_Domains_Name, "")
+                        val get_Saved_Domains_Name111 =
+                            myDownloadClass.getString(Constants.Saved_Domains_Name, "")
                         if (get_Saved_Domains_Name111!!.isNotEmpty()) {
-                            texturlsViews.setText(get_Saved_Domains_Name111)
+                            texturlsViews.text = get_Saved_Domains_Name111
 
                         } else {
-                            texturlsViews.setText("Select Custom Domain")
+                            texturlsViews.text = "Select Custom Domain"
                         }
 
                     }
 
-            }catch (e:Exception){}
+                } catch (e: Exception) {
+                }
             }
 
 
@@ -2180,17 +2349,438 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         val get_savedIntervals = myDownloadClass.getLong(Constants.getTimeDefined, 0)
 
         if (get_savedIntervals != 0L) {
-
             binding.textIntervalsSelect.text = get_savedIntervals.toString() + Minutes
             binding.textDisplaytime.text = get_savedIntervals.toString() + Minutes
 
         } else {
-
             binding.textIntervalsSelect.text = "Sync interval timer"
             binding.textDisplaytime.text = "Selected time : 00:55"
 
         }
 
+    }
+
+
+    private fun showSelectedSyncType() {
+        val bindingCm: CustomSelectSyncTypeBinding =
+            CustomSelectSyncTypeBinding.inflate(layoutInflater)
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+        builder.setView(bindingCm.root)
+        val alertDialog = builder.create()
+        alertDialog.setCanceledOnTouchOutside(true)
+        alertDialog.setCancelable(true)
+
+        // Set the background of the AlertDialog to be transparent
+        if (alertDialog.window != null) {
+            alertDialog.window!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
+
+        alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
+
+
+        val consMainAlert_sub_layout = bindingCm.consMainAlertDn
+        val textTitle = bindingCm.textTitle
+        val imgCloseDialog = bindingCm.imageCrossClose
+        val close_bs = bindingCm.closeBs
+        val divider21 = bindingCm.divider21
+        val imgZipSync = bindingCm.imgZipSync
+
+
+        val preferences =
+            android.preference.PreferenceManager.getDefaultSharedPreferences(applicationContext)
+
+        if (preferences.getBoolean("darktheme", false)) {
+            consMainAlert_sub_layout.setBackgroundResource(R.drawable.card_design_account_number_dark_pop_layout)
+
+            textTitle.setTextColor(resources.getColor(R.color.dark_light_gray_pop))
+
+            val drawable_close_bs =
+                ContextCompat.getDrawable(applicationContext, R.drawable.ic_baseline_arrow)
+            drawable_close_bs?.setColorFilter(
+                ContextCompat.getColor(
+                    applicationContext, R.color.dark_light_gray_pop
+                ), PorterDuff.Mode.SRC_IN
+            )
+            close_bs.setImageDrawable(drawable_close_bs)
+
+            val drawable_imageCrossClose =
+                ContextCompat.getDrawable(applicationContext, R.drawable.ic_close_24)
+            drawable_imageCrossClose?.setColorFilter(
+                ContextCompat.getColor(
+                    applicationContext, R.color.dark_light_gray_pop
+                ), PorterDuff.Mode.SRC_IN
+            )
+            imgCloseDialog.setImageDrawable(drawable_imageCrossClose)
+
+            divider21.setBackgroundColor(
+                ContextCompat.getColor(
+                    applicationContext, R.color.dark_light_gray_pop
+                )
+            )
+
+
+        }
+
+
+        if (handlerMoveToWebviewPage != null) {
+            handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
+        }
+
+
+
+
+        bindingCm.apply {
+
+            // nit the right rado btn
+
+
+            val getSyncMethods =
+                sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
+            if (getSyncMethods == Constants.USE_ZIP_SYNC) {
+                // set only this one to be true
+                imgZipSync.background =
+                    ContextCompat.getDrawable(applicationContext, R.drawable.ic_check_true_24)
+                // set the rest to be false
+                imgAPISync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgParsingSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgFTPSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+
+            } else if (getSyncMethods == Constants.USE_API_SYNC) {
+
+                // set only this one to be true
+                imgAPISync.background =
+                    ContextCompat.getDrawable(applicationContext, R.drawable.ic_check_true_24)
+                // set the rest to be false
+                imgZipSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgParsingSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgFTPSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+
+            } else if (getSyncMethods == Constants.USE_PARSING_SYNC) {
+                // set only this one to be true
+                imgParsingSync.background =
+                    ContextCompat.getDrawable(applicationContext, R.drawable.ic_check_true_24)
+                // set the rest to be false
+                imgZipSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgAPISync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgFTPSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+
+            } else if (getSyncMethods == Constants.USE_FTP_SYNC) {
+                // set only this one to be true
+                imgFTPSync.background =
+                    ContextCompat.getDrawable(applicationContext, R.drawable.ic_check_true_24)
+                // set the rest to be false
+                imgZipSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgAPISync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgParsingSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+
+            }
+
+
+
+            closeBs.setOnClickListener {
+                alertDialog.dismiss()
+            }
+
+
+            imageCrossClose.setOnClickListener {
+                alertDialog.dismiss()
+            }
+
+
+
+            textZipSync.setOnClickListener {
+                initZipSyncMethod()
+                initToggleUseZipSyncOrApI()
+
+                // set only this one to be true
+                imgZipSync.background =
+                    ContextCompat.getDrawable(applicationContext, R.drawable.ic_check_true_24)
+                // set the rest to be false
+                imgAPISync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgParsingSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgFTPSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+
+                alertDialog.dismiss()
+            }
+
+
+            textApiSync.setOnClickListener {
+                initAPISyncMode()
+                initToggleUseZipSyncOrApI()
+
+                // set only this one to be true
+                imgAPISync.background =
+                    ContextCompat.getDrawable(applicationContext, R.drawable.ic_check_true_24)
+                // set the rest to be false
+                imgZipSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgParsingSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgFTPSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+
+                alertDialog.dismiss()
+            }
+
+            textParsingSync.setOnClickListener {
+
+
+                // set only this one to be true
+                imgParsingSync.background =
+                    ContextCompat.getDrawable(applicationContext, R.drawable.ic_check_true_24)
+                // set the rest to be false
+                imgZipSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgAPISync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgFTPSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+
+
+                initParsingSyncMethod()
+                initToggleUseZipSyncOrApI()
+                alertDialog.dismiss()
+
+            }
+
+            textFTPSync.setOnClickListener {
+
+                // set only this one to be true
+                imgFTPSync.background =
+                    ContextCompat.getDrawable(applicationContext, R.drawable.ic_check_true_24)
+                // set the rest to be false
+                imgZipSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgAPISync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+                imgParsingSync.background = ContextCompat.getDrawable(
+                    applicationContext,
+                    R.drawable.ic_check_false_radio_btn_24
+                )
+
+
+                initFTPSyncMethod()
+                initToggleUseZipSyncOrApI()
+                alertDialog.dismiss()
+            }
+
+        }
+
+        alertDialog.show()
+
+    }
+
+
+    private fun initAPISyncMode() {
+        binding.apply {
+
+            val editorDN = myDownloadClass.edit()
+            editorDN.remove(Constants.SynC_Status)
+            editorDN.remove(Constants.textDownladByes)
+            editorDN.remove(Constants.progressBarPref)
+            editorDN.remove(Constants.progressBarPref)
+            editorDN.remove(Constants.filesChange)
+            editorDN.remove(Constants.numberOfFiles)
+
+            editorDN.apply()
+
+
+            val editor = sharedBiometric.edit()
+            hideKeyBoard(binding.editTextInputSynUrlZip)
+
+
+            editor.putString(Constants.IMG_SELECTED_SYNC_METHOD, Constants.USE_API_SYNC)
+            editor.apply()
+            binding.textDownloadZipSyncOrApiSyncNow.text = "Connect API Sync"
+            binding.editTextInputSynUrlZip.hint = "Input url  API Sync"
+
+
+            if (!preferences.getBoolean("darktheme", false)) {
+
+                binding.textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.light_background_blue_color)
+                binding.textDownloadZipSyncOrApiSyncNow.setTextColor(
+                    ContextCompat.getColor(
+                        applicationContext, R.color.deep_blue
+                    )
+                )
+            }
+
+
+        }
+    }
+
+    private fun initZipSyncMethod() {
+        binding.apply {
+            val editorDN = myDownloadClass.edit()
+            editorDN.remove(Constants.SynC_Status)
+            editorDN.remove(Constants.textDownladByes)
+            editorDN.remove(Constants.progressBarPref)
+            editorDN.remove(Constants.progressBarPref)
+            editorDN.remove(Constants.filesChange)
+            editorDN.remove(Constants.numberOfFiles)
+
+            editorDN.apply()
+
+
+            val editor = sharedBiometric.edit()
+            hideKeyBoard(binding.editTextInputSynUrlZip)
+
+
+            editor.putString(Constants.IMG_SELECTED_SYNC_METHOD, Constants.USE_ZIP_SYNC)
+            editor.apply()
+            editTextInputSynUrlZip.hint = "Input url  ZIP Sync"
+            textDownloadZipSyncOrApiSyncNow.text = "Connect ZIP Sync"
+
+
+            if (!preferences.getBoolean("darktheme", false)) {
+                textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.card_design_buy_gift_card)
+                textDownloadZipSyncOrApiSyncNow.setTextColor(
+                    ContextCompat.getColor(
+                        applicationContext, R.color.white
+                    )
+                )
+
+            }
+
+        }
+    }
+
+
+    private fun initParsingSyncMethod() {
+        binding.apply {
+            val editorDN = myDownloadClass.edit()
+            editorDN.remove(Constants.SynC_Status)
+            editorDN.remove(Constants.textDownladByes)
+            editorDN.remove(Constants.progressBarPref)
+            editorDN.remove(Constants.progressBarPref)
+            editorDN.remove(Constants.filesChange)
+            editorDN.remove(Constants.numberOfFiles)
+
+            editorDN.apply()
+
+
+            val editor = sharedBiometric.edit()
+            hideKeyBoard(binding.editTextInputSynUrlZip)
+
+
+            editor.putString(Constants.IMG_SELECTED_SYNC_METHOD, Constants.USE_PARSING_SYNC)
+            editor.apply()
+
+            editTextInputSynUrlZip.hint = "Input url  Parsing Sync"
+            textDownloadZipSyncOrApiSyncNow.text = "Connect Parsing Sync"
+
+
+            if (!preferences.getBoolean("darktheme", false)) {
+                textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.card_design_buy_gift_card)
+                textDownloadZipSyncOrApiSyncNow.setTextColor(
+                    ContextCompat.getColor(
+                        applicationContext, R.color.white
+                    )
+                )
+
+            }
+
+        }
+    }
+
+    private fun initFTPSyncMethod() {
+        binding.apply {
+
+            val editorDN = myDownloadClass.edit()
+            editorDN.remove(Constants.SynC_Status)
+            editorDN.remove(Constants.textDownladByes)
+            editorDN.remove(Constants.progressBarPref)
+            editorDN.remove(Constants.progressBarPref)
+            editorDN.remove(Constants.filesChange)
+            editorDN.remove(Constants.numberOfFiles)
+
+            editorDN.apply()
+
+
+            val editor = sharedBiometric.edit()
+            hideKeyBoard(binding.editTextInputSynUrlZip)
+
+
+            editor.putString(Constants.IMG_SELECTED_SYNC_METHOD, Constants.USE_FTP_SYNC)
+            editor.apply()
+
+            binding.textDownloadZipSyncOrApiSyncNow.text = "Connect FTP Sync"
+            binding.editTextInputSynUrlZip.hint = "Input url  FTP Sync"
+
+
+            if (!preferences.getBoolean("darktheme", false)) {
+
+                binding.textDownloadZipSyncOrApiSyncNow.setBackgroundResource(R.drawable.light_background_blue_color)
+                binding.textDownloadZipSyncOrApiSyncNow.setTextColor(
+                    ContextCompat.getColor(
+                        applicationContext, R.color.deep_blue
+                    )
+                )
+            }
+
+
+        }
     }
 
 
@@ -2202,7 +2792,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         customSavedDownloadDialog.setCancelable(true)
         customSavedDownloadDialog.setCanceledOnTouchOutside(true)
         customSavedDownloadDialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        customSavedDownloadDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
+
 
         val consMainAlert_sub_layout = bindingCm.consMainAlertSubLayout
         val textTitle = bindingCm.textTitle
@@ -2227,8 +2817,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 ContextCompat.getDrawable(applicationContext, R.drawable.ic_baseline_arrow)
             drawable_close_bs?.setColorFilter(
                 ContextCompat.getColor(
-                    applicationContext,
-                    R.color.dark_light_gray_pop
+                    applicationContext, R.color.dark_light_gray_pop
                 ), PorterDuff.Mode.SRC_IN
             )
             close_bs.setImageDrawable(drawable_close_bs)
@@ -2237,16 +2826,14 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 ContextCompat.getDrawable(applicationContext, R.drawable.ic_close_24)
             drawable_imageCrossClose?.setColorFilter(
                 ContextCompat.getColor(
-                    applicationContext,
-                    R.color.dark_light_gray_pop
+                    applicationContext, R.color.dark_light_gray_pop
                 ), PorterDuff.Mode.SRC_IN
             )
             imgCloseDialog.setImageDrawable(drawable_imageCrossClose)
 
             divider21.setBackgroundColor(
                 ContextCompat.getColor(
-                    applicationContext,
-                    R.color.dark_light_gray_pop
+                    applicationContext, R.color.dark_light_gray_pop
                 )
             )
 
@@ -2254,7 +2841,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         }
 
 
-        if (handlerMoveToWebviewPage != null){
+        if (handlerMoveToWebviewPage != null) {
             handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
         }
 
@@ -2312,7 +2899,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 layoutInflater
             )
         val builder = androidx.appcompat.app.AlertDialog.Builder(this)
-        builder.setView(bindingCm.getRoot())
+        builder.setView(bindingCm.root)
         val alertDialog = builder.create()
         alertDialog.setCanceledOnTouchOutside(true)
         alertDialog.setCancelable(true)
@@ -2320,7 +2907,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         // Set the background of the AlertDialog to be transparent
         if (alertDialog.window != null) {
             alertDialog.window!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
         }
 
 
@@ -2329,8 +2915,9 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         bindingCm.apply {
 
 
-            val preferences =
-                android.preference.PreferenceManager.getDefaultSharedPreferences(applicationContext)
+            val preferences = android.preference.PreferenceManager.getDefaultSharedPreferences(
+                applicationContext
+            )
 
             if (preferences.getBoolean("darktheme", false)) {
                 consMainAlertSubLayout.setBackgroundResource(R.drawable.card_design_account_number_dark_pop_layout)
@@ -2351,8 +2938,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     ContextCompat.getDrawable(applicationContext, R.drawable.ic_baseline_arrow)
                 drawable_close_bs?.setColorFilter(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.dark_light_gray_pop
+                        applicationContext, R.color.dark_light_gray_pop
                     ), PorterDuff.Mode.SRC_IN
                 )
                 closeBs.setImageDrawable(drawable_close_bs)
@@ -2361,16 +2947,14 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     ContextCompat.getDrawable(applicationContext, R.drawable.ic_close_24)
                 drawable_imageCrossClose?.setColorFilter(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.dark_light_gray_pop
+                        applicationContext, R.color.dark_light_gray_pop
                     ), PorterDuff.Mode.SRC_IN
                 )
                 imageCrossClose.setImageDrawable(drawable_imageCrossClose)
 
                 divider21.setBackgroundColor(
                     ContextCompat.getColor(
-                        applicationContext,
-                        R.color.dark_light_gray_pop
+                        applicationContext, R.color.dark_light_gray_pop
                     )
                 )
 
@@ -2382,7 +2966,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
 
-        if (handlerMoveToWebviewPage != null){
+        if (handlerMoveToWebviewPage != null) {
             handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
         }
 
@@ -2452,7 +3036,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 editor.apply()
 
 
-
             }
 
             text3000minutes2.setOnClickListener {
@@ -2464,7 +3047,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 val editor = myDownloadClass.edit()
                 editor.putLong(Constants.getTimeDefined, Constants.t_30min)
                 editor.apply()
-
 
 
             }
@@ -2535,11 +3117,12 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
     @SuppressLint("InflateParams", "SuspiciousIndentation")
     private fun serVerOptionDialog() {
-        val bindingCm: CustomApiHardCodedLayoutBinding = CustomApiHardCodedLayoutBinding.inflate(
-            layoutInflater
-        )
+        val bindingCm: CustomApiHardCodedLayoutBinding =
+            CustomApiHardCodedLayoutBinding.inflate(
+                layoutInflater
+            )
         val builder = androidx.appcompat.app.AlertDialog.Builder(this)
-        builder.setView(bindingCm.getRoot())
+        builder.setView(bindingCm.root)
         val alertDialog = builder.create()
         alertDialog.setCanceledOnTouchOutside(true)
         alertDialog.setCancelable(true)
@@ -2547,7 +3130,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         // Set the background of the AlertDialog to be transparent
         if (alertDialog.window != null) {
             alertDialog.window!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
         }
 
 
@@ -2574,8 +3156,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 ContextCompat.getDrawable(applicationContext, R.drawable.ic_baseline_arrow)
             drawable_close_bs?.setColorFilter(
                 ContextCompat.getColor(
-                    applicationContext,
-                    R.color.dark_light_gray_pop
+                    applicationContext, R.color.dark_light_gray_pop
                 ), PorterDuff.Mode.SRC_IN
             )
             close_bs.setImageDrawable(drawable_close_bs)
@@ -2584,8 +3165,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 ContextCompat.getDrawable(applicationContext, R.drawable.ic_close_24)
             drawable_imageCrossClose?.setColorFilter(
                 ContextCompat.getColor(
-                    applicationContext,
-                    R.color.dark_light_gray_pop
+                    applicationContext, R.color.dark_light_gray_pop
                 ), PorterDuff.Mode.SRC_IN
             )
             imgCloseDialog.setImageDrawable(drawable_imageCrossClose)
@@ -2593,8 +3173,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             divider21.setBackgroundColor(
                 ContextCompat.getColor(
-                    applicationContext,
-                    R.color.dark_light_gray_pop
+                    applicationContext, R.color.dark_light_gray_pop
                 )
             )
 
@@ -2609,7 +3188,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             textApiServer.setOnClickListener {
 
-                if (handlerMoveToWebviewPage != null){
+                if (handlerMoveToWebviewPage != null) {
                     handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                 }
 
@@ -2625,7 +3204,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
             textCloudServer.setOnClickListener {
-                if (handlerMoveToWebviewPage != null){
+                if (handlerMoveToWebviewPage != null) {
                     handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                 }
 
@@ -2643,7 +3222,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             imageCrossClose.setOnClickListener {
 
-                if (handlerMoveToWebviewPage != null){
+                if (handlerMoveToWebviewPage != null) {
                     handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                 }
                 alertDialog.dismiss()
@@ -2651,7 +3230,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             closeBs.setOnClickListener {
 
-                if (handlerMoveToWebviewPage != null){
+                if (handlerMoveToWebviewPage != null) {
                     handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
                 }
 
@@ -2707,7 +3286,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
         }
 
-        if (handlerMoveToWebviewPage != null){
+        if (handlerMoveToWebviewPage != null) {
             handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
         }
 
@@ -2782,12 +3361,14 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
     private fun funManulOrNotInteView() {
         binding.apply {
             // logic for use manual or not
-            val imagUsemanualOrnotuseManual = sharedBiometric.getString(Constants.imagSwtichEnableManualOrNot, "")
-            imagSwtichEnableManualOrNot.isChecked = imagUsemanualOrnotuseManual.equals(Constants.imagSwtichEnableManualOrNot)
+            val imagUsemanualOrnotuseManual =
+                sharedBiometric.getString(Constants.imagSwtichEnableManualOrNot, "")
+            imagSwtichEnableManualOrNot.isChecked =
+                imagUsemanualOrnotuseManual.equals(Constants.imagSwtichEnableManualOrNot)
 
 
             if (imagUsemanualOrnotuseManual.equals(Constants.imagSwtichEnableManualOrNot)) {
-                textUseManual.setText("Use manual")
+                textUseManual.text = "Use manual"
 
                 editTextInputSynUrlZip.visibility = View.VISIBLE
                 editTextInputIndexManual.visibility = View.VISIBLE
@@ -2797,7 +3378,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
 
             } else {
-                textUseManual.setText("Do not use manual")
+                textUseManual.text = "Do not use manual"
 
                 editTextInputSynUrlZip.visibility = View.GONE
                 editTextInputIndexManual.visibility = View.GONE
@@ -2816,10 +3397,10 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         Constants.imagSwtichEnableManualOrNot, "imagSwtichEnableManualOrNot"
                     )
                     editor.apply()
-                    textUseManual.setText("Use manual")
+                    textUseManual.text = "Use manual"
 
                     editTextInputSynUrlZip.visibility = View.VISIBLE
-                    editTextInputIndexManual?.visibility = View.VISIBLE
+                    editTextInputIndexManual.visibility = View.VISIBLE
                     // for clos
                     editTextCLOpath.visibility = View.GONE
                     editTextSubPathFolder.visibility = View.GONE
@@ -2829,10 +3410,10 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                     editor.remove("imagSwtichEnableManualOrNot")
                     editor.apply()
-                    textUseManual.setText("Do not use manual")
+                    textUseManual.text = "Do not use manual"
 
                     editTextInputSynUrlZip.visibility = View.GONE
-                    editTextInputIndexManual?.visibility = View.GONE
+                    editTextInputIndexManual.visibility = View.GONE
                     // for clos
                     editTextCLOpath.visibility = View.VISIBLE
                     editTextSubPathFolder.visibility = View.VISIBLE
@@ -2875,7 +3456,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                             when (getUrlBasedOnSpinnerText) {
                                 CP_server -> {
                                     if (getFolderClo.isNotEmpty() && getFolderSubpath.isNotEmpty()) {
-                                        httpNetworkDownloadsMultiplePaths(getFolderClo, getFolderSubpath)
+                                        httpNetworkDownloadsMultiplePaths(getFolderClo,getFolderSubpath)
                                         editor.putString(Constants.getSavedCLOImPutFiled, getFolderClo)
                                         editor.putString(Constants.getSaveSubFolderInPutFiled, getFolderSubpath)
                                         editor.putString(Constants.get_ModifiedUrl, Constants.CUSTOM_CP_SERVER_DOMAIN)
@@ -2916,7 +3497,8 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     } else {
 
                         val getFolderClo222 = binding.editTextCLOpath.text.toString().trim()
-                        val getFolderSubpath22 = binding.editTextSubPathFolder.text.toString().trim()
+                        val getFolderSubpath22 =
+                            binding.editTextSubPathFolder.text.toString().trim()
                         var Saved_Domains_Urls = myDownloadClass.getString(Constants.Saved_Domains_Urls, "").toString()
 
                         if (Saved_Domains_Urls.isNotEmpty()) {
@@ -2924,13 +3506,18 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                             if (getFolderClo222.isNotEmpty() && getFolderSubpath22.isNotEmpty()) {
                                 testAndDownLoad_My_API(getFolderClo222, getFolderSubpath22)
-                                editor.putString(Constants.getSavedCLOImPutFiled, getFolderClo222)
-                                editor.putString(Constants.getSaveSubFolderInPutFiled, getFolderSubpath22)
+                                editor.putString(
+                                    Constants.getSavedCLOImPutFiled, getFolderClo222
+                                )
+                                editor.putString(
+                                    Constants.getSaveSubFolderInPutFiled, getFolderSubpath22
+                                )
                                 editor.apply()
 
                             } else {
                                 editTextCLOpath.error = "Input a valid path e.g CLO"
-                                editTextSubPathFolder.error = "Input a valid path e.g DE_MO_2021000"
+                                editTextSubPathFolder.error =
+                                    "Input a valid path e.g DE_MO_2021000"
                                 showToastMessage("Fields can not be empty")
                             }
 
@@ -2954,9 +3541,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         httpNetSingleDwonload(editInputUrl, editInputAppIndex)
 
                         editor.putString(Constants.getSavedEditTextInputSynUrlZip, editInputUrl)
-                        editor.putString(
-                            Constants.getSaved_manaul_index_edit_url_Input, editInputAppIndex
-                        )
+                        editor.putString(Constants.getSaved_manaul_index_edit_url_Input, editInputAppIndex)
                         editor.apply()
 
                     } else {
@@ -2991,13 +3576,15 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             showCustomProgressDialog("Please wait")
 
 
+            val getSyncMethods =
+                sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
 
-            if (binding.imagSwtichEnableSyncFromAPI.isChecked) {
+            if (getSyncMethods == Constants.USE_ZIP_SYNC) {
 
-               /// val baseDomain = Constants.CUSTOM_CP_SERVER_DOMAIN
-
-                val myDownloadClass = getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
-                val CP_AP_MASTER_DOMAIN = myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
+                val myDownloadClass =
+                    getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
+                val CP_AP_MASTER_DOMAIN =
+                    myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
                 val baseDomain = CP_AP_MASTER_DOMAIN
                 val baseUrl = "$baseDomain/$getFolderClo/$getFolderSubpath/Zip/App.zip"
 
@@ -3036,11 +3623,13 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 }
 
 
-            } else {
+            } else if (getSyncMethods == Constants.USE_API_SYNC) {
 
 
-                val myDownloadClass = getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
-                val CP_AP_MASTER_DOMAIN = myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
+                val myDownloadClass =
+                    getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
+                val CP_AP_MASTER_DOMAIN =
+                    myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
 
                 //val baseDomain = Constants.CUSTOM_CP_SERVER_DOMAIN
                 val baseDomain = CP_AP_MASTER_DOMAIN
@@ -3082,7 +3671,106 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     }
                 }
 
+            } else if (getSyncMethods == Constants.USE_PARSING_SYNC) {
+
+
+                val myDownloadClass = getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
+                val CP_AP_MASTER_DOMAIN = myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
+                val baseUrl = "$CP_AP_MASTER_DOMAIN/$getFolderClo/$getFolderSubpath/App/index.html"
+
+                //  https://cp.cloudappserver.co.uk/app_base/public//CLO/DE_MO_2021001/App/index.html
+
+                lifecycleScope.launch {
+                    try {
+                        val result = checkUrlExistence(baseUrl)
+                        if (result) {
+                            startMyDownlaodsMutiplesPath(
+                                CP_AP_MASTER_DOMAIN,
+                                getFolderClo,
+                                getFolderSubpath,
+                                Constants.Zip,
+                                Constants.fileNmae_App_Zip,
+                            )
+
+                            // save also to room data base
+                            val user = User(
+                                CLO = getFolderClo,
+                                DEMO = getFolderSubpath,
+                                EditUrl = "",
+                                EditUrlIndex = ""
+                            )
+                            mUserViewModel.addUser(user)
+
+
+                        } else {
+                            showPopsForMyConnectionTest(
+                                getFolderClo, getFolderSubpath, "Failed!"
+                            )
+
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+                        }
+                    } finally {
+
+                    }
+                }
+
+
+            } else if (getSyncMethods == Constants.USE_FTP_SYNC) {
+
+           /*     val myDownloadClass = getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
+                val CP_AP_MASTER_DOMAIN = myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
+                val baseUrl = "$CP_AP_MASTER_DOMAIN/$getFolderClo/$getFolderSubpath/App/index.html"
+
+                //  https://cp.cloudappserver.co.uk/app_base/public//CLO/DE_MO_2021001/App/index.html
+
+                lifecycleScope.launch {
+                    try {
+                        val result = checkUrlExistence(baseUrl)
+                        if (result) {
+                            startMyDownlaodsMutiplesPath(
+                                CP_AP_MASTER_DOMAIN,
+                                getFolderClo,
+                                getFolderSubpath,
+                                Constants.Zip,
+                                Constants.fileNmae_App_Zip,
+                            )
+
+                            // save also to room data base
+                            val user = User(
+                                CLO = getFolderClo,
+                                DEMO = getFolderSubpath,
+                                EditUrl = "",
+                                EditUrlIndex = ""
+                            )
+                            mUserViewModel.addUser(user)
+
+
+                        } else {
+                            showPopsForMyConnectionTest(
+                                getFolderClo, getFolderSubpath, "Failed!"
+                            )
+
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+                        }
+                    } finally {
+
+                    }
+                }*/
+
+                if (customProgressDialog != null){
+                    customProgressDialog.dismiss()
+                }
+
+                showToastMessage("We sorry but the set for FTP is not ready")
+
+
             }
+
+
 
 
         }, 300)
@@ -3096,17 +3784,17 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             val lastString = editInputUrl.substringAfterLast("/")
             val fileNameWithoutExtension = lastString.substringBeforeLast(".")
 
+            val getSyncMethods =
+                sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
 
-            if (binding.imagSwtichEnableSyncFromAPI.isChecked) {
+            if (getSyncMethods == Constants.USE_ZIP_SYNC) {
 
                 lifecycleScope.launch {
                     try {
                         val result = checkUrlExistence(editInputUrl)
                         if (result) {
                             startDownloadSingles(
-                                editInputUrl,
-                                Constants.Zip,
-                                Constants.fileNmae_App_Zip
+                                editInputUrl, Constants.Zip, Constants.fileNmae_App_Zip
                             )
 
                             val user = User(
@@ -3118,17 +3806,19 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                             mUserViewModel.addUser(user)
 
                         } else {
-                            showPopsForMyConnectionTest(
-                                "CLO", fileNameWithoutExtension, "Failed!"
-                            )
+                            showPopsForMyConnectionTest("CLO", fileNameWithoutExtension, "Failed!")
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+                        }
+                    } catch (e:java.lang.Exception){
+                        if (customProgressDialog != null){
                             customProgressDialog.dismiss()
                         }
-                    } finally {
-
                     }
                 }
 
-            } else {
+            } else if (getSyncMethods == Constants.USE_API_SYNC) {
 
                 lifecycleScope.launch {
                     try {
@@ -3150,13 +3840,78 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                                 "CLO", fileNameWithoutExtension, "Failed!"
                             )
 
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+                        }
+                    } catch (e:Exception){
+                        if (customProgressDialog != null){
                             customProgressDialog.dismiss()
                         }
-                    } finally {
-
                     }
                 }
-            }
+            } else if (getSyncMethods == Constants.USE_PARSING_SYNC) {
+
+                lifecycleScope.launch {
+                    try {
+                        val result = checkUrlExistence(editInputUrl)
+                        if (result) {
+
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+
+                            showToastMessage("(Parsing) We are sorry but the manual for this set up is not Ready ")
+
+                        } else {
+
+                            showPopsForMyConnectionTest(
+                                "CLO", fileNameWithoutExtension, "Failed!"
+                            )
+
+                            if (customProgressDialog != null){
+                                customProgressDialog.dismiss()
+                            }
+                        }
+                    } catch (e:Exception){
+                        if (customProgressDialog != null){
+                            customProgressDialog.dismiss()
+                        }
+                    }
+                }
+
+
+            } else if (getSyncMethods == Constants.USE_FTP_SYNC) {
+
+             lifecycleScope.launch {
+                 try {
+                     val result = checkUrlExistence(editInputUrl)
+                     if (result) {
+
+                         if (customProgressDialog != null){
+                             customProgressDialog.dismiss()
+                         }
+
+                         showToastMessage("(FTP) We are sorry but the manual for this set up is not Ready")
+
+
+                     } else {
+
+                         showPopsForMyConnectionTest("CLO", fileNameWithoutExtension, "Failed!")
+
+                         if (customProgressDialog != null){
+                             customProgressDialog.dismiss()
+                         }
+                     }
+                 } catch (e:Exception){
+                     if (customProgressDialog != null){
+                         customProgressDialog.dismiss()
+                     }
+                 }
+             }
+
+
+        }
 
 
         }, 300)
@@ -3181,9 +3936,13 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 editor.apply()
 
 
+                val getSyncMethods =
+                    sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
 
-                if (binding.imagSwtichEnableSyncFromAPI.isChecked) {
-                    val get_Full_url = Saved_Domains_Urls + "/$getFolderClo/$getFolderSubpath/Zip/App.zip"
+                if (getSyncMethods == Constants.USE_ZIP_SYNC) {
+
+                    val get_Full_url =
+                        Saved_Domains_Urls + "/$getFolderClo/$getFolderSubpath/Zip/App.zip"
 
                     showToastMessageLong(get_Full_url)
 
@@ -3202,31 +3961,36 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                                     EditUrlIndex = ""
                                 )
                                 mUserViewModel.addUser(user)
-                                customProgressDialog.dismiss()
+
+                                if (customProgressDialog != null){
+                                    customProgressDialog.dismiss()
+                                }
 
                             } else {
                                 showPopsForMyConnectionTest(
                                     getFolderClo, getFolderSubpath, "Failed!"
                                 )
 
+                                if (customProgressDialog != null){
+                                    customProgressDialog.dismiss()
+                                }
+
+                            }
+                        } catch (e:java.lang.Exception){
+                            if (customProgressDialog != null){
                                 customProgressDialog.dismiss()
                             }
-                        } finally {
-                            // customProgressDialog.dismiss()
                         }
                     }
 
 
-//                    handler.postDelayed(Runnable {
-//                        customProgressDialog.cancel()
-//                    }, 900)
 
-
-                } else {
+                } else if (getSyncMethods == Constants.USE_API_SYNC) {
                     // val get_Full_url = Saved_Domains_Urls + "/$getFolderClo/$getFolderSubpath/App/index.html"
 
                     val myCSvEndPath = Constants.myCSvEndPath
-                    val get_Full_url = "$Saved_Domains_Urls/$getFolderClo/$getFolderSubpath/$myCSvEndPath"
+                    val get_Full_url =
+                        "$Saved_Domains_Urls/$getFolderClo/$getFolderSubpath/$myCSvEndPath"
 
                     showToastMessageLong(get_Full_url)
 
@@ -3245,23 +4009,26 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                                     EditUrlIndex = ""
                                 )
                                 mUserViewModel.addUser(user)
-                                customProgressDialog.dismiss()
+
+                                if (customProgressDialog != null){
+                                    customProgressDialog.dismiss()
+                                }
 
                             } else {
                                 showPopsForMyConnectionTest(
                                     getFolderClo, getFolderSubpath, "Failed!"
                                 )
+
+                                if (customProgressDialog != null){
+                                    customProgressDialog.dismiss()
+                                }
+                            }
+
+                        }catch (e:java.lang.Exception){
+                            if (customProgressDialog != null){
                                 customProgressDialog.dismiss()
                             }
-                        } finally {
-                            //   customProgressDialog.dismiss()
-                        }
-                    }
-
-
-//                    handler.postDelayed(Runnable {
-//                        customProgressDialog.cancel()
-//                    }, 900)
+                        } }
 
 
                 }
@@ -3287,7 +4054,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             var Saved_Domains_Urls =
                 myDownloadClass.getString(Constants.Saved_Domains_Urls, "").toString()
 
-
             if (isNetworkAvailable()) {
 
                 val get_ModifiedUrl = Saved_Domains_Urls
@@ -3295,9 +4061,11 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 editor.putString(Constants.get_ModifiedUrl, get_ModifiedUrl)
                 editor.apply()
 
+                val getSyncMethods =
+                    sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
 
+                if (getSyncMethods == Constants.USE_ZIP_SYNC) {
 
-                if (binding.imagSwtichEnableSyncFromAPI.isChecked) {
                     val get_Full_url =
                         "$Saved_Domains_Urls/$getFolderClo/$getFolderSubpath/Zip/App.zip"
 
@@ -3326,30 +4094,28 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                             } else {
                                 showPopsForMyConnectionTest(
-                                    getFolderClo,
-                                    getFolderSubpath,
-                                    "Failed!"
+                                    getFolderClo, getFolderSubpath, "Failed!"
                                 )
 
+                                if (customProgressDialog != null){
+                                    customProgressDialog.dismiss()
+                                }
+                            }
+                        } catch (e:Exception){
+                            if (customProgressDialog != null){
                                 customProgressDialog.dismiss()
                             }
-                        } finally {
-//                            handler.postDelayed(Runnable {
-//                                customProgressDialog.dismiss()
-//                            }, 900)
                         }
                     }
 
-//                    handler.postDelayed(Runnable {
-//                        customProgressDialog.cancel()
-//                    }, 900)
 
 
-                } else {
+                } else if (getSyncMethods == Constants.USE_ZIP_SYNC) {
                     //   val get_Full_url = Saved_Domains_Urls + "/$getFolderClo/$getFolderSubpath/App/index.html"
 
                     val myCSvEndPath = Constants.myCSvEndPath
-                    val get_Full_url = Saved_Domains_Urls + "/$getFolderClo/$getFolderSubpath/$myCSvEndPath"
+                    val get_Full_url =
+                        Saved_Domains_Urls + "/$getFolderClo/$getFolderSubpath/$myCSvEndPath"
 
 
                     showToastMessageLong(get_Full_url)
@@ -3377,16 +4143,16 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                             } else {
                                 showPopsForMyConnectionTest(
-                                    getFolderClo,
-                                    getFolderSubpath,
-                                    "Failed!"
+                                    getFolderClo, getFolderSubpath, "Failed!"
                                 )
+                                if (customProgressDialog != null){
+                                    customProgressDialog.dismiss()
+                                }
+                            }
+                        }catch (e:Exception){
+                            if (customProgressDialog != null){
                                 customProgressDialog.dismiss()
                             }
-                        } finally {
-                            handler.postDelayed(Runnable {
-                                //  customProgressDialog.dismiss()
-                            }, 900)
                         }
                     }
 
@@ -3418,7 +4184,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         alertDialog.setCancelable(true)
 
         alertDialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
+
 
         val consMainAlert_sub_layout = bindingCM.consMainAlertSubLayout
         val textSucessful = bindingCM.textSucessful
@@ -3439,7 +4205,11 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             val drawable_imgCloseDialog =
                 ContextCompat.getDrawable(applicationContext, R.drawable.ic_close_24)
-            drawable_imgCloseDialog?.setColorFilter(ContextCompat.getColor(applicationContext, R.color.white), PorterDuff.Mode.SRC_IN)
+            drawable_imgCloseDialog?.setColorFilter(
+                ContextCompat.getColor(
+                    applicationContext, R.color.white
+                ), PorterDuff.Mode.SRC_IN
+            )
             imgCloseDialog.setImageDrawable(drawable_imgCloseDialog)
 
 
@@ -3501,9 +4271,9 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 val Extracted = "App"
 
 
+                val getSyncMethods = sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
 
-                if (binding.imagSwtichEnableSyncFromAPI.isChecked) {
-
+                if (getSyncMethods == Constants.USE_ZIP_SYNC) {
                     download(
                         baseUrl,
                         getFolderClo,
@@ -3513,9 +4283,20 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         Extracted,
                         threeFolderPath
                     )
-                } else {
+                } else if (getSyncMethods == Constants.USE_API_SYNC) {
 
                     callApiClassActivity(
+                        baseUrl,
+                        getFolderClo,
+                        getFolderSubpath,
+                        Zip,
+                        fileName,
+                        Extracted,
+                        threeFolderPath
+                    )
+
+                } else if (getSyncMethods == Constants.USE_PARSING_SYNC) {
+                    startParsingActivity(
                         baseUrl,
                         getFolderClo,
                         getFolderSubpath,
@@ -3559,8 +4340,95 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
     }
 
+    private fun startParsingActivity(
+        baseUrl: String,
+        getFolderClo: String,
+        getFolderSubpath: String,
+        Zip: String,
+        fileNamy: String,
+        Extracted: String,
+        threeFolderPath: String,
+    ) {
+
+
+        val editior = myDownloadClass.edit()
+        editior.putString(Constants.getFolderClo, getFolderClo)
+        editior.putString(Constants.getFolderSubpath, getFolderSubpath)
+        editior.putString("Zip", Zip)
+        editior.putString("fileNamy", fileNamy)
+        editior.putString(Constants.Extracted, Extracted)
+
+        // used to control Sync Start from  set up page
+        editior.remove(Constants.Manage_My_Sync_Start)
+
+
+        val get_savedIntervals = myDownloadClass.getLong(Constants.getTimeDefined, 0)
+
+        if (get_savedIntervals != 0L) {
+            editior.putLong(Constants.getTimeDefined, get_savedIntervals)
+
+        } else {
+            editior.putLong(Constants.getTimeDefined, Constants.t_5min)
+
+        }
+
+        editior.apply()
+
+
+
+        mFilesViewModel.deleteAllFiles()
+        dnFailedViewModel.deleteAllFiles()
+        dnViewModel.deleteAllFiles()
+        parsingViewModel.deleteAllFiles()
+
+
+        lifecycleScope.launch(Dispatchers.IO) {
+
+            val Syn2AppLive = Constants.Syn2AppLive
+            val saveMyFileToStorage = "/$Syn2AppLive/$getFolderClo/$getFolderSubpath/App/"
+
+            // delete existing files first
+            val directoryPath = Environment.getExternalStorageDirectory().absolutePath + "/Download/" + saveMyFileToStorage
+            val myFile = File(directoryPath)
+            delete(myFile)
+
+
+            val saveMyFileToStorage_second = "/$Syn2AppLive/$getFolderClo/$getFolderSubpath/"
+            val fileName = "/App/"
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), saveMyFileToStorage_second)
+            val myFile_second = File(dir, fileName)
+            delete(myFile_second)
+
+
+            // delete tempoaray parsing folder
+
+            val Demo_Parsing_Folder = Constants.TEMP_PARS_FOLDER
+            val saveDemoStorage = "/$Syn2AppLive/$Demo_Parsing_Folder/$getFolderClo/$getFolderSubpath/App/"
+            val directoryParsing = Environment.getExternalStorageDirectory().absolutePath + "/Download/" + saveDemoStorage
+            val myFileParsing = File(directoryParsing)
+            delete(myFileParsing)
+
+
+
+            val parsingStorage_second = "/$Syn2AppLive/$Demo_Parsing_Folder/$getFolderClo/$getFolderSubpath/"
+            val fileNameParsing = "/App/"
+            val dirParsing = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), parsingStorage_second)
+            val myFile_Parsing = File(dirParsing, fileNameParsing)
+            delete(myFile_Parsing)
+
+
+
+            withContext(Dispatchers.Main){
+                InitParsingScanForDownload(baseUrl = baseUrl, getFolderClo = getFolderClo, getFolderSubpath = getFolderSubpath)
+            }
+
+        }
+
+    }
+
+
     private fun callApiClassActivity(
-        url: String,
+        baseUrl: String,
         getFolderClo: String,
         getFolderSubpath: String,
         Zip: String,
@@ -3594,35 +4462,33 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         editior.apply()
 
 
-        downloadTheApiCsvData()
+        InitdownloadTheApiCsvData()
 
 
     }
 
-    private fun downloadTheApiCsvData() {
+
+    private fun InitdownloadTheApiCsvData() {
         binding.apply {
-
-            val imagUsemanualOrnotuseManual =
-                sharedBiometric.getString(Constants.imagSwtichEnableManualOrNot, "")
-
-            //  if (imagUsemanualOrnotuseManual.equals(Constants.imagSwtichEnableManualOrNot)) {
 
 
             if (binding.imagSwtichEnableManualOrNot.isChecked) {
                 handler.postDelayed(Runnable {
 
-                    val getSavedEditTextInputSynUrlZip = myDownloadClass.getString(Constants.getSavedEditTextInputSynUrlZip, "").toString()
+                    val getSavedEditTextInputSynUrlZip =
+                        myDownloadClass.getString(Constants.getSavedEditTextInputSynUrlZip, "")
+                            .toString()
 
                     if (getSavedEditTextInputSynUrlZip.contains(Constants.myCSvEndPath)) {
                         getDownloadMyCSVManual()
                     } else if (getSavedEditTextInputSynUrlZip.contains(Constants.myCSVUpdate1)) {
                         getDownloadMyCSVManual()
                     } else {
-                        // showToastMessage("Something went wrong, System Could not locate CSV from this Location")
-                        //   binding.textCsvStatus.text = Constants.Error_CSv_Message
 
                         showToastMessage(Constants.Error_CSv_Message)
-                        customProgressDialog.dismiss()
+                        if (customProgressDialog != null){
+                            customProgressDialog.dismiss()
+                        }
 
                     }
 
@@ -3632,7 +4498,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                 handler.postDelayed(Runnable {
                     getDownloadMyCSV()
-                    // showToastMessage("getDownloadMyCSV")
                 }, 500)
             }
 
@@ -3644,34 +4509,29 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
     private fun getDownloadMyCSV() {
 
         lifecycleScope.launch(Dispatchers.IO) {
-            val imagUsemanualOrnotuseManual = sharedBiometric.getString(Constants.imagSwtichEnableManualOrNot, "").toString()
             val getFolderClo = myDownloadClass.getString(Constants.getFolderClo, "").toString()
             val getFolderSubpath =
                 myDownloadClass.getString(Constants.getFolderSubpath, "").toString()
             val get_ModifiedUrl =
                 myDownloadClass.getString(Constants.get_ModifiedUrl, "").toString()
-            val get_getSavedEditTextInputSynUrlZip =
-                myDownloadClass.getString(Constants.getSavedEditTextInputSynUrlZip, "").toString()
-            //  val baseDomain = Constants.customDomainUrl
 
-            Log.d("ResyncActivity", get_ModifiedUrl)
+            Log.d(TAG_RSYC, get_ModifiedUrl)
 
-            //   showToastMessage("API Content Connection Successful!")
-            //  binding.textCsvStatus.text = "API Content Connection Successful!"
-
-            val lastEnd = "Start/start1.csv";
+            val lastEnd = "Start/start1.csv"
             val csvDownloader = CSVDownloader()
-            val csvData =
-                csvDownloader.downloadCSV(get_ModifiedUrl, getFolderClo, getFolderSubpath, lastEnd)
+            val csvData = csvDownloader.downloadCSV(
+                get_ModifiedUrl, getFolderClo, getFolderSubpath, lastEnd
+            )
             saveURLPairs(csvData)
-            //  handler.postDelayed(runnable, 500)
 
             handler.postDelayed(Runnable {
+                if (customProgressDialog != null){
+                    customProgressDialog.dismiss()
+                }
                 val intent = Intent(applicationContext, DownloadApisFilesActivity::class.java)
                 startActivity(intent)
                 finish()
 
-                customProgressDialog.dismiss()
 
             }, 5000)
 
@@ -3688,26 +4548,24 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         lifecycleScope.launch(Dispatchers.IO) {
 
             val get_getSavedEditTextInputSynUrlZip =
-                myDownloadClass.getString(Constants.getSavedEditTextInputSynUrlZip, "").toString()
+                myDownloadClass.getString(Constants.getSavedEditTextInputSynUrlZip, "")
+                    .toString()
 
-
-            //   showToastMessage("API Content Connection Successful!")
-            //  binding.textCsvStatus.text =  "API Content Connection Successful!"
 
             val csvDownloader = CSVDownloader()
-            val csvData = csvDownloader.downloadCSV(get_getSavedEditTextInputSynUrlZip, "", "", "")
+            val csvData =
+                csvDownloader.downloadCSV(get_getSavedEditTextInputSynUrlZip, "", "", "")
             saveURLPairs(csvData)
 
-            //  myHandler.postDelayed(runnableManual, 500)
 
             handler.postDelayed(Runnable {
+                if (customProgressDialog != null){
+                    customProgressDialog.dismiss()
+                }
                 val intent = Intent(applicationContext, DownloadApisFilesActivity::class.java)
                 startActivity(intent)
                 finish()
-                finish()
-                finishAndRemoveTask()
 
-                customProgressDialog.dismiss()
 
             }, 5000)
 
@@ -3723,7 +4581,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         mFilesViewModel.deleteAllFiles()
         dnFailedViewModel.deleteAllFiles()
         dnViewModel.deleteAllFiles()
-
+        parsingViewModel.deleteAllFiles()
         val pairs = parseCSV(csvData)
 
         // Add files to Room Database
@@ -3766,7 +4624,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
     }
 
-
     // for no need of comma CSV
     private fun parseCSV(csvData: String): List<String> {
         val pairs = mutableListOf<String>()
@@ -3780,6 +4637,189 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
     }
 
 
+    /// Init Parsing
+    private fun InitParsingScanForDownload(
+        baseUrl: String,
+        getFolderClo: String,
+        getFolderSubpath: String,
+
+        ) {
+
+        binding.apply {
+
+
+            if (binding.imagSwtichEnableManualOrNot.isChecked) {
+                handler.postDelayed(Runnable {
+
+                    val getSavedEditTextInputSynUrlZip = myDownloadClass.getString(Constants.getSavedEditTextInputSynUrlZip, "").toString()
+
+                    if (getSavedEditTextInputSynUrlZip.contains(Constants.ifEndContainsIndexFileName)) {
+
+                        showToastMessage(getSavedEditTextInputSynUrlZip)
+                        getAllIndexUrls(getSavedEditTextInputSynUrlZip, baseUrl, getFolderClo, getFolderSubpath)
+                        showToastMessage("Start Parsing")
+                    } else {
+
+                        showToastMessage(Constants.Error_Parsing_Message)
+
+                        if (customProgressDialog!=null){
+                            customProgressDialog.dismiss()
+                        }
+                    }
+
+                }, 500)
+
+            } else {
+
+                handler.postDelayed(Runnable {
+
+                    val parsingUrl = "$baseUrl/$getFolderClo/$getFolderSubpath/App/index.html"
+                    getAllIndexUrls(parsingUrl, baseUrl,  getFolderClo, getFolderSubpath)
+
+                }, 500)
+            }
+
+        }
+
+
+    }
+
+
+    @SuppressLint("SetTextI18n")
+    private fun getAllIndexUrls(url: String, baseUrl: String,  getFolderClo: String, getFolderSubpath: String) {
+        try {
+            CoroutineScope(Dispatchers.IO).launch {
+                val urls = Utility.fetchUrlsFromHtml(url)
+                filesToProcess = urls.size
+                // Prepare a StringBuilder to accumulate URLs
+                val builder = StringBuilder()
+
+                withContext(Dispatchers.Main) {
+                    var validCount = 0  // Counter for valid URLs
+
+                    urls.forEach { it ->
+                        Log.d(TAG_RSYC, "Fetched URL: $it")
+                        filIst = builder.append("Fetched URL:$validCount ::: $it\n").toString()
+
+                        // Check if the URL should be saved
+                        if (shouldSaveUrl(it, baseUrl, getFolderClo, getFolderSubpath)) {
+
+                            if (!isActive) {
+                                Log.d(TAG_RSYC, "Process canceled.")
+                                return@withContext
+                            }
+
+                            saveParsingURLPairs(validCount, it, urls.size, baseUrl, getFolderClo, getFolderSubpath)
+                            validCount++  // Increment only for valid URLs
+                        } else {
+                            Log.d(TAG_RSYC, "Ignoring URL: $it")
+                        }
+
+                        mutex.withLock {
+                            filesToProcess--
+
+                            if (filesToProcess == 0) {
+                                // All files are processed, trigger your action here .e sort files time stamp
+                                handler.postDelayed(Runnable {
+                                    onAllFilesProcessed()
+                                }, 400)
+                            }
+                        }
+
+                    }
+
+
+                }
+            }
+        }catch (e:Exception){
+            Log.d(TAG_RSYC, "getAllIndexUrls: ${e.message}")
+            showToastMessage("Error, Something went wrong.... ${e.message}")
+        }
+    }
+
+    // Function to determine if a URL should be saved
+    private fun shouldSaveUrl(url: String, _baseUrl: String, getFolderClo: String, getFolderSubpath: String): Boolean {
+        // Check if the URL ends with a slash
+        if (url.endsWith("/")) return false
+
+        // Extract the relative path after the base URL
+        val baseUrl = "$_baseUrl/$getFolderClo/$getFolderSubpath/"
+        val relativePath = url.removePrefix(baseUrl)
+
+        // Check if there is a file name with a dot (.)
+        val fileName = relativePath.substringAfterLast('/')
+        return fileName.contains('.')
+    }
+
+    private fun saveParsingURLPairs(index: Int, url: String, totalFiles: Int, baseUrl: String, getFolderClo: String, getFolderSubpath: String) {
+        val folderAndFile = extractFolderAndFile(url, baseUrl, getFolderClo, getFolderSubpath)
+        val folderName = folderAndFile.first
+        val fileName = folderAndFile.second
+        val status = "true"
+
+        // Initialize filesToProcess only once
+        if (filesToProcess == 0) {
+            filesToProcess = totalFiles
+        }
+
+
+        val files = FilesApi(
+            SN = index.toString(),
+            FolderName = folderName,
+            FileName = fileName,
+            Status = status
+        )
+
+        val dnFailedApi = DnFailedApi(
+            SN = index.toString(),
+            FolderName = folderName,
+            FileName = fileName,
+            Status = status
+        )
+
+
+
+        // Add file to Room Database
+        lifecycleScope.launch(Dispatchers.IO) {
+            dnFailedViewModel.addFiles(dnFailedApi)
+            mFilesViewModel.addFiles(files)
+        }
+    }
+
+    private fun extractFolderAndFile(url: String, _baseUrl: String, getFolderClo: String, getFolderSubpath: String): Pair<String, String> {
+        val baseUrl = "$_baseUrl/$getFolderClo/$getFolderSubpath/"
+        val relativePath = url.removePrefix(baseUrl)
+
+        val folderName = relativePath.substringBeforeLast('/')
+        val fileName = relativePath.substringAfterLast('/')
+
+        return Pair(folderName, fileName)
+    }
+
+
+    private fun onAllFilesProcessed() {
+
+        dnFailedViewModel.readAllData.observe(this@ReSyncActivity, Observer { files ->
+            if (files.isNotEmpty()) {
+                Log.d(TAG_RSYC, "Fetched ${files.size} files.")
+            } else {
+                Log.d(TAG_RSYC, "No files found to process.")
+            }
+        })
+
+        handler.postDelayed(Runnable {
+            if (customProgressDialog != null){
+                customProgressDialog.dismiss()
+            }
+            showSortingFilesPopUp()
+
+        }, 500)
+
+
+    }
+
+
+    // init single Download
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun startDownloadSingles(baseUrl: String, Zip: String, fileNamy: String) {
 
@@ -3794,21 +4834,17 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         } else {
             binding.apply {
 
-                // customProgressDialog.dismiss()
 
-                if (binding.imagSwtichEnableSyncFromAPI.isChecked) {
+                val getSyncMethods =
+                    sharedBiometric.getString(Constants.IMG_SELECTED_SYNC_METHOD, "").toString()
+
+                if (getSyncMethods == Constants.USE_ZIP_SYNC) {
 
                     binding.apply {
 
 
                         download(
-                            baseUrl,
-                            "MANUAL",
-                            "DEMO",
-                            Zip,
-                            fileNamy,
-                            Extracted,
-                            threeFolderPath
+                            baseUrl, "MANUAL", "DEMO", Zip, fileNamy, Extracted, threeFolderPath
                         )
 
                         val editor = myDownloadClass.edit()
@@ -3823,9 +4859,15 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     }
 
 
-                } else {
+                } else if (getSyncMethods == Constants.USE_API_SYNC) {
 
                     callApiClassActivity(
+                        baseUrl, "CLO", "MANUAL/DEMO", Zip, fileNamy, Extracted, threeFolderPath
+                    )
+
+                } else if (getSyncMethods == Constants.USE_PARSING_SYNC) {
+
+                    startParsingActivity(
                         baseUrl,
                         "CLO",
                         "MANUAL/DEMO",
@@ -3834,6 +4876,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         Extracted,
                         threeFolderPath
                     )
+
 
                 }
 
@@ -3848,18 +4891,22 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 editor.putString(Constants.baseUrl, baseUrl)
 
 
-
-
                 val editText88 = sharedBiometric.edit()
 
                 if (binding.imagSwtichEnableLaucngOnline.isChecked) {
 
-                    editText88.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_WebView_Online_Manual_Index)
+                    editText88.putString(
+                        Constants.get_Launching_State_Of_WebView,
+                        Constants.launch_WebView_Online_Manual_Index
+                    )
                     editText88.apply()
 
                 } else {
 
-                    editText88.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_WebView_Offline_Manual_Index)
+                    editText88.putString(
+                        Constants.get_Launching_State_Of_WebView,
+                        Constants.launch_WebView_Offline_Manual_Index
+                    )
                     editText88.apply()
 
                 }
@@ -3870,8 +4917,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 editor.apply()
             }
         }
-
-
 
 
     }
@@ -3956,8 +5001,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             val managerDownload = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
 
-            val folder = File(
-                Environment.getExternalStorageDirectory()
+            val folder = File(Environment.getExternalStorageDirectory()
                     .toString() + "/Download/$Syn2AppLive/$finalFolderPath"
             )
 
@@ -3997,15 +5041,17 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             //  editor222.putString(Constants.showDownloadSyncStatus, "showDownloadSyncStatus")
             editor222.apply()
 
-            customProgressDialog.dismiss()
+            if (customProgressDialog != null){
+                customProgressDialog.dismiss()
+            }
 
-        }, 200)
+        }, 3000)
 
 
     }
 
 
-    fun delete(file: File): Boolean {
+   private fun delete(file: File): Boolean {
         if (file.isFile) {
             return file.delete()
         } else if (file.isDirectory) {
@@ -4075,13 +5121,12 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 layoutInflater
             )
         val builder = AlertDialog.Builder(this)
-        builder.setView(bindingCM.getRoot())
+        builder.setView(bindingCM.root)
         val alertDialog = builder.create()
         alertDialog.setCanceledOnTouchOutside(false)
         alertDialog.setCancelable(false)
         if (alertDialog.window != null) {
             alertDialog.window!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
         }
 
         val textLaunchMyOnline: TextView = bindingCM.textLaunchMyOnline
@@ -4097,14 +5142,15 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         textLaunchMyOnline.setOnClickListener {
 
 
-
             binding.apply {
 
-                textLunchOnline.setText("Launch online")
+                textLunchOnline.text = "Launch online"
 
 
                 val editor = myDownloadClass.edit()
-                val imagSwtichEnableManualOrNot = sharedBiometric.getString(Constants.imagSwtichEnableManualOrNot, "").toString()
+                val imagSwtichEnableManualOrNot =
+                    sharedBiometric.getString(Constants.imagSwtichEnableManualOrNot, "")
+                        .toString()
 
                 if (imagSwtichEnableManualOrNot.equals(Constants.imagSwtichEnableManualOrNot)) {
 
@@ -4112,8 +5158,11 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                     if (fil_baseUrl.isNotEmpty() && fil_appIndex.isNotEmpty()) {
 
-                        val myDownloadClass = getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
-                        val CP_AP_MASTER_DOMAIN = myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
+                        val myDownloadClass =
+                            getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
+                        val CP_AP_MASTER_DOMAIN =
+                            myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "")
+                                .toString()
 
                         // this url does not affect the Outcome of Master Domain
                         val url = "${CP_AP_MASTER_DOMAIN}/$fil_CLO/$fil_DEMO/App/index.html"
@@ -4124,16 +5173,22 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         //   editor.putString(Constants.imgAllowLunchFromOnline, "imgAllowLunchFromOnline")
 
                         editor.putString(Constants.getSavedEditTextInputSynUrlZip, fil_baseUrl)
-                        editor.putString(Constants.getSaved_manaul_index_edit_url_Input, fil_appIndex)
+                        editor.putString(
+                            Constants.getSaved_manaul_index_edit_url_Input, fil_appIndex
+                        )
                         editor.putString(Constants.syncUrl, url)
-                        editor.putString(Constants.Tapped_OnlineORoffline, Constants.tapped_launchOnline)
+                        editor.putString(
+                            Constants.Tapped_OnlineORoffline, Constants.tapped_launchOnline
+                        )
                         editor.apply()
 
 
                         val editText88 = sharedBiometric.edit()
-                        editText88.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_WebView_Online_Manual_Index)
+                        editText88.putString(
+                            Constants.get_Launching_State_Of_WebView,
+                            Constants.launch_WebView_Online_Manual_Index
+                        )
                         editText88.apply()
-
 
 
                         val intent = Intent(applicationContext, WebViewPage::class.java)
@@ -4152,8 +5207,11 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
                     if (fil_CLO.isNotEmpty() && fil_DEMO.isNotEmpty()) {
 
-                        val myDownloadClass = getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
-                        val CP_AP_MASTER_DOMAIN = myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
+                        val myDownloadClass =
+                            getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
+                        val CP_AP_MASTER_DOMAIN =
+                            myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "")
+                                .toString()
 
                         // this url does not affect the Outcome of Master Domain
                         val url = "${CP_AP_MASTER_DOMAIN}/$fil_CLO/$fil_DEMO/App/index.html"
@@ -4166,12 +5224,17 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         editor.putString(Constants.getFolderClo, fil_CLO)
                         editor.putString(Constants.getFolderSubpath, fil_DEMO)
                         editor.putString(Constants.syncUrl, url)
-                        editor.putString(Constants.Tapped_OnlineORoffline, Constants.tapped_launchOnline)
+                        editor.putString(
+                            Constants.Tapped_OnlineORoffline, Constants.tapped_launchOnline
+                        )
                         editor.apply()
 
 
                         val editText88 = sharedBiometric.edit()
-                        editText88.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_WebView_Online)
+                        editText88.putString(
+                            Constants.get_Launching_State_Of_WebView,
+                            Constants.launch_WebView_Online
+                        )
                         editText88.apply()
 
 
@@ -4200,19 +5263,24 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
 
             binding.apply {
 
-                textLunchOnline.setText("Launch offline")
+                textLunchOnline.text = "Launch offline"
 
                 val editor = myDownloadClass.edit()
 
-                val imagSwtichEnableManualOrNot = sharedBiometric.getString(Constants.imagSwtichEnableManualOrNot, "").toString()
+                val imagSwtichEnableManualOrNot =
+                    sharedBiometric.getString(Constants.imagSwtichEnableManualOrNot, "")
+                        .toString()
 
                 if (imagSwtichEnableManualOrNot.equals(Constants.imagSwtichEnableManualOrNot)) {
 
 
                     if (fil_baseUrl.isNotEmpty() && fil_appIndex.isNotEmpty()) {
 
-                        val myDownloadClass = getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
-                        val CP_AP_MASTER_DOMAIN = myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
+                        val myDownloadClass =
+                            getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
+                        val CP_AP_MASTER_DOMAIN =
+                            myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "")
+                                .toString()
 
                         // this url does not affect the Outcome of Master Domain
                         val url = "${CP_AP_MASTER_DOMAIN}/$fil_CLO/$fil_DEMO/App/index.html"
@@ -4222,17 +5290,22 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         // editor.putString(Constants.imgAllowLunchFromOnline, "imgAllowLunchFromOnline")
 
                         editor.putString(Constants.getSavedEditTextInputSynUrlZip, fil_baseUrl)
-                        editor.putString(Constants.getSaved_manaul_index_edit_url_Input, fil_appIndex)
+                        editor.putString(
+                            Constants.getSaved_manaul_index_edit_url_Input, fil_appIndex
+                        )
                         editor.putString(Constants.syncUrl, url)
-                        editor.putString(Constants.Tapped_OnlineORoffline, Constants.tapped_launchOffline)
+                        editor.putString(
+                            Constants.Tapped_OnlineORoffline, Constants.tapped_launchOffline
+                        )
                         editor.apply()
 
 
-
                         val editText88 = sharedBiometric.edit()
-                        editText88.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_WebView_Offline)
+                        editText88.putString(
+                            Constants.get_Launching_State_Of_WebView,
+                            Constants.launch_WebView_Offline
+                        )
                         editText88.apply()
-
 
 
                         val intent = Intent(applicationContext, WebViewPage::class.java)
@@ -4250,8 +5323,11 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                     // Do not use manual
                     if (fil_CLO.isNotEmpty() && fil_DEMO.isNotEmpty()) {
 
-                        val myDownloadClass = getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
-                        val CP_AP_MASTER_DOMAIN = myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "").toString()
+                        val myDownloadClass =
+                            getSharedPreferences(Constants.MY_DOWNLOADER_CLASS, MODE_PRIVATE)
+                        val CP_AP_MASTER_DOMAIN =
+                            myDownloadClass.getString(Constants.CP_OR_AP_MASTER_DOMAIN, "")
+                                .toString()
 
                         // this url does not affect the Outcome of Master Domain
                         val url = "${CP_AP_MASTER_DOMAIN}/$fil_CLO/$fil_DEMO/App/index.html"
@@ -4269,7 +5345,6 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                         val editText88 = sharedBiometric.edit()
                         editText88.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_WebView_Offline_Manual_Index)
                         editText88.apply()
-
 
 
                         val intent = Intent(applicationContext, WebViewPage::class.java)
@@ -4307,7 +5382,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         custom_ApI_Dialog.setCancelable(true)
         custom_ApI_Dialog.setCanceledOnTouchOutside(true)
         custom_ApI_Dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        custom_ApI_Dialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
+
 
         val consMainAlert_sub_layout = bindingCm.constraintLayout
         val textTitle = bindingCm.textTitle
@@ -4333,8 +5408,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 ContextCompat.getDrawable(applicationContext, R.drawable.ic_baseline_arrow)
             drawable_close_bs?.setColorFilter(
                 ContextCompat.getColor(
-                    applicationContext,
-                    R.color.dark_light_gray_pop
+                    applicationContext, R.color.dark_light_gray_pop
                 ), PorterDuff.Mode.SRC_IN
             )
             close_bs.setImageDrawable(drawable_close_bs)
@@ -4343,26 +5417,27 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
                 ContextCompat.getDrawable(applicationContext, R.drawable.ic_close_24)
             drawable_imageCrossClose?.setColorFilter(
                 ContextCompat.getColor(
-                    applicationContext,
-                    R.color.dark_light_gray_pop
+                    applicationContext, R.color.dark_light_gray_pop
                 ), PorterDuff.Mode.SRC_IN
             )
             imgCloseDialog.setImageDrawable(drawable_imageCrossClose)
 
-            val colorWhite = ContextCompat.getColor(applicationContext, R.color.dark_light_gray_pop)
-            progressBar2.indeterminateDrawable.setColorFilter(colorWhite, PorterDuff.Mode.SRC_IN)
+            val colorWhite =
+                ContextCompat.getColor(applicationContext, R.color.dark_light_gray_pop)
+            progressBar2.indeterminateDrawable.setColorFilter(
+                colorWhite, PorterDuff.Mode.SRC_IN
+            )
 
             divider21.setBackgroundColor(
                 ContextCompat.getColor(
-                    applicationContext,
-                    R.color.dark_light_gray_pop
+                    applicationContext, R.color.dark_light_gray_pop
                 )
             )
 
 
         }
 
-        if (handlerMoveToWebviewPage != null){
+        if (handlerMoveToWebviewPage != null) {
             handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
         }
 
@@ -4460,7 +5535,7 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             editor.putString(Constants.Saved_Domains_Urls, urls)
             editor.apply()
 
-            if (handlerMoveToWebviewPage != null){
+            if (handlerMoveToWebviewPage != null) {
                 handlerMoveToWebviewPage.removeCallbacksAndMessages(null)
             }
 
@@ -4476,14 +5551,16 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
             val download_ref: Long = myDownloadClass.getLong(Constants.downloadKey, -15)
 
             val getFolderClo = myDownloadClass.getString(Constants.getFolderClo, "").toString()
-            val getFolderSubpath = myDownloadClass.getString(Constants.getFolderSubpath, "").toString()
+            val getFolderSubpath =
+                myDownloadClass.getString(Constants.getFolderSubpath, "").toString()
             val Zip = myDownloadClass.getString(Constants.Zip, "").toString()
             val fileName = myDownloadClass.getString(Constants.fileName, "").toString()
 
 
             val finalFolderPath = "/$getFolderClo/$getFolderSubpath/$Zip/$fileName"
 
-            val directoryPath = Environment.getExternalStorageDirectory().absolutePath + "/Download/${Constants.Syn2AppLive}/" + finalFolderPath
+            val directoryPath =
+                Environment.getExternalStorageDirectory().absolutePath + "/Download/${Constants.Syn2AppLive}/" + finalFolderPath
 
             val myFile = File(directoryPath, fileName)
 
@@ -4510,13 +5587,178 @@ class ReSyncActivity : AppCompatActivity(), SavedHistoryListAdapter.OnItemClickL
         }
     }
 
+
+    @SuppressLint("InflateParams", "SuspiciousIndentation", "SetTextI18n")
+    private fun showSortingFilesPopUp() {
+        val bindingCm: CustomSortFilesLayoutBinding = CustomSortFilesLayoutBinding.inflate(layoutInflater)
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+        builder.setView(bindingCm.root)
+        val alertDialog = builder.create()
+        alertDialog.setCanceledOnTouchOutside(false)
+        alertDialog.setCancelable(false)
+
+        // Set the background of the AlertDialog to be transparent
+        if (alertDialog.window != null) {
+            alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
+            alertDialog.window!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
+
+
+        val textLoading = bindingCm.textLoading
+        val textFilesCounts = bindingCm.textFilesCount
+        val textFileInitCount = bindingCm.textFileInitCount
+        val imgCloseDialog = bindingCm.imgCloseDialog
+        val textPleaseWait = bindingCm.textPleaseWait
+        val progressbar = bindingCm.progressBar2
+        val progressBarInter = bindingCm.progressBarInter
+
+        textLoading.visibility = View.INVISIBLE
+        textFilesCounts.visibility = View.INVISIBLE
+        textFileInitCount.visibility = View.INVISIBLE
+        textPleaseWait.visibility = View.INVISIBLE
+        imgCloseDialog.visibility = View.INVISIBLE
+        imgCloseDialog.visibility = View.INVISIBLE
+
+
+        bindingCm.apply {
+            handler.postDelayed({
+                val files = dnFailedViewModel.readAllData.value ?: emptyList()
+                if (files.isEmpty()) {
+                    textLoading.text = "No Files found"
+                    textLoading.visibility = View.VISIBLE
+                    imgCloseDialog.visibility = View.VISIBLE
+                    progressBarInter.visibility = View.VISIBLE
+
+                    Log.d("SyncProcess", "No files to process on button click.")
+                } else {
+                    textLoading.visibility = View.VISIBLE
+                    textPleaseWait.visibility = View.VISIBLE
+                    imgCloseDialog.visibility = View.VISIBLE
+                    progressbar.visibility = View.VISIBLE
+                    progressBarInter.visibility = View.INVISIBLE
+
+                    processingJob = lifecycleScope.launch {
+                        processFilesSequentially(progressbar, alertDialog, textFilesCounts, textFileInitCount, files)
+                    }
+                }
+            }, 2000)
+
+            imgCloseDialog.setOnClickListener {
+                processingJob?.cancel()
+                alertDialog.dismiss()
+            }
+        }
+
+        alertDialog.show()
+    }
+
+    @SuppressLint("SetTextI18n")
+    private suspend fun processFilesSequentially(
+        progressbar:ProgressBar,
+        alertDialog: androidx.appcompat.app.AlertDialog,
+        textFilesCounts: TextView,
+        textFileInitCount: TextView,
+        files: List<DnFailedApi>
+    ) {
+
+        try {
+            Log.d("SyncProcess", "Starting file synchronization process...")
+            withContext(Dispatchers.IO) {
+                for ((index, file) in files.withIndex()) {
+                    if (!isActive) {
+                        Log.d("SyncProcess", "Process canceled.")
+                        return@withContext
+                    }
+
+                    processFile(file)
+
+                    val percent = ((index + 1).toFloat() / files.size.toFloat() * 100).toInt()
+                    val fileInts = "File ${index + 1} of ${files.size}"
+                    withContext(Dispatchers.Main) {
+                        textFilesCounts.text = "$percent%"
+                        progressbar.progress = percent
+                        textFileInitCount.text = fileInts
+                        textFilesCounts.visibility = View.VISIBLE
+                        textFileInitCount.visibility = View.VISIBLE
+                    }
+
+                    delay(500) // Simulate file processing
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                textFilesCounts.text = "100%"
+                progressbar.progress = 100
+
+                handler.postDelayed(Runnable {
+                    val intent = Intent(applicationContext, DownloadApisFilesActivityParsing::class.java)
+                    startActivity(intent)
+                    finish()
+                    alertDialog.dismiss()
+
+                }, 1000)
+
+                Log.d("SyncProcess", "File synchronization completed!")
+            }
+        }catch (e:Exception){
+            Log.d(TAG_RSYC, "processFilesSequentially: ${e.message}")
+        }
+    }
+
+
+
+    private suspend fun processFile(file: DnFailedApi) {
+        try {
+            val url = "https://cp.cloudappserver.co.uk/app_base/public//CLO/DE_MO_2021001/${file.FolderName}/${file.FileName}"
+            val serverTimestamp = fetchServerTimestamp(url)
+            val erro1 = "Failed to check file"
+            if (serverTimestamp != erro1) {
+                saveFile(file, serverTimestamp.toString())
+            } else {
+                saveFile(file, "Unable to fecth time")
+            }
+        }catch (e:Exception){
+            Log.d(TAG_RSYC, "processFile: ${e.message}")
+        }
+    }
+
+    private suspend fun fetchServerTimestamp(url: String): String? {
+        return withContext(Dispatchers.IO) {
+            FileChecker(url).checkFileChange()
+        }
+    }
+
+    private suspend fun saveFile(file: DnFailedApi, fileTimeStamp: String) {
+        try {
+            withContext(Dispatchers.IO) {
+                val newParsingApi = ParsingApi(
+                    SN = file.SN,
+                    FolderName = file.FolderName,
+                    FileName = file.FileName,
+                    FileTimeStamp = fileTimeStamp,
+                    Status = "true"
+                )
+
+                parsingViewModel.addFiles(newParsingApi)
+                Log.d(TAG_RSYC, "File saved: ${file.SN} :: ${file.FileName} with timestamp $fileTimeStamp")
+            }
+        }catch (e:Exception){
+            Log.d(TAG_RSYC, "saveFile: ${e.message}")
+        }
+    }
+
+
+
+
     private fun loadBackGroundImage() {
 
         val fileTypes = "app_background.png"
         val getFolderClo = myDownloadClass.getString(Constants.getFolderClo, "").toString()
-        val getFolderSubpath = myDownloadClass.getString(Constants.getFolderSubpath, "").toString()
+        val getFolderSubpath =
+            myDownloadClass.getString(Constants.getFolderSubpath, "").toString()
 
-        val pathFolder = "/" + getFolderClo + "/" + getFolderSubpath + "/" + Constants.App + "/" + "Config"
+        val pathFolder =
+            "/" + getFolderClo + "/" + getFolderSubpath + "/" + Constants.App + "/" + "Config"
         val folder =
             Environment.getExternalStorageDirectory().absolutePath + "/Download/${Constants.Syn2AppLive}/" + pathFolder
         val file = File(folder, fileTypes)

@@ -1,4 +1,5 @@
 package sync2app.com.syncapplive.additionalSettings.cloudAppsync.schedules;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -50,6 +51,7 @@ public class ScheduleList extends AppCompatActivity {
     // data
     private File scheduleFile;
 
+    @SuppressLint("SourceLockedOrientationActivity")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -61,14 +63,25 @@ public class ScheduleList extends AppCompatActivity {
 
         SharedPreferences sharedBiometric = getSharedPreferences(Constants.SHARED_BIOMETRIC, MODE_PRIVATE);
         String getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString();
+/*
         if (getState.equals(Constants.ENABLE_LANDSCAPE_MODE)) {
             setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         } else {
-            if (getState.isEmpty()) {
+            */
+/*if (getState.isEmpty()) {
                 setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
             } else {
                 setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-            }
+            }*//*
+
+        }
+*/
+
+
+        if (getState.equals(Constants.ENABLE_LANDSCAPE_MODE)) {
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        } else {
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         }
 
 

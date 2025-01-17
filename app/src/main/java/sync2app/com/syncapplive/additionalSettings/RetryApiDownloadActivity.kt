@@ -119,18 +119,26 @@ class RetryApiDownloadActivity : AppCompatActivity() {
         binding = ActivityRetryApiDownloadBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
+    /*    val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
+            *//* if (getState.isNullOrEmpty()){
+                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+             }else{
+                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+             }*//*
         }
+*/
 
 
+        val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
+        if (getState == Constants.ENABLE_LANDSCAPE_MODE){
+
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }else{
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
 
         preferences = PreferenceManager.getDefaultSharedPreferences(applicationContext)
 
@@ -937,20 +945,17 @@ class RetryApiDownloadActivity : AppCompatActivity() {
 
         try {
 
-            val download_ref: Long = sharedP.getLong(Constants.downloadKey, -15)
+/*            val download_ref: Long = sharedP.getLong(Constants.downloadKey, -15)
 
             val query = DownloadManager.Query()
             query.setFilterById(download_ref)
-            val c =
-                (applicationContext.getSystemService(DOWNLOAD_SERVICE) as DownloadManager).query(
-                    query
-                )
+            val c = (applicationContext.getSystemService(DOWNLOAD_SERVICE) as DownloadManager).query(query)
             if (c.moveToFirst()) {
                 manager!!.remove(download_ref)
                 val editor: SharedPreferences.Editor = sharedP.edit()
                 editor.remove(Constants.downloadKey)
                 editor.apply()
-            }
+            }*/
         } catch (ignored: java.lang.Exception) {
         }
     }

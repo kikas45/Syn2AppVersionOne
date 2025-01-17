@@ -84,17 +84,30 @@ class InformationActivity : AppCompatActivity() {
         binding = ActivityInformationBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+/*
         val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
-        }
+            */
+/* if (getState.isNullOrEmpty()){
+                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+             }else{
+                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+             }*//*
 
+        }
+*/
+
+
+
+        val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
+        if (getState == Constants.ENABLE_LANDSCAPE_MODE){
+
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }else{
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
 
         setupListeners()
 
@@ -114,8 +127,7 @@ class InformationActivity : AppCompatActivity() {
     private fun setUpPasswordToggle() {
         binding.apply {
 
-            val text =
-                "Important : Please ensure to fill correct details for account recovery and verification."
+            val text = "Important : Please ensure to fill correct details for account recovery and verification."
             val spannableString = SpannableString(text)
             val colorRed = resources.getColor(R.color.red)
             spannableString.setSpan(

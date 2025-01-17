@@ -1,6 +1,8 @@
 package sync2app.com.syncapplive.additionalSettings
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.app.PendingIntent
 import android.app.admin.DevicePolicyManager
 import android.app.admin.SystemUpdatePolicy
 import android.content.ComponentName
@@ -9,9 +11,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.PorterDuff
+import android.graphics.drawable.ColorDrawable
 import android.media.AudioManager
 import android.net.Uri
 import android.os.BatteryManager
@@ -22,22 +27,36 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.UserManager
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import android.view.View
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.ImageView
+import android.widget.RadioButton
+import android.widget.TextView
+import android.widget.Toast
+import androidx.annotation.RequiresApi
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.preference.PreferenceManager
 import com.bumptech.glide.Glide
+import sync2app.com.syncapplive.DE_MO_TEST.KoloWebviewPage
 import sync2app.com.syncapplive.R
 import sync2app.com.syncapplive.SettingsActivityKT
 import sync2app.com.syncapplive.additionalSettings.autostartAppOncrash.Methods
 import sync2app.com.syncapplive.additionalSettings.cloudAppsync.schedules.ScheduleMediaActivity
 import sync2app.com.syncapplive.additionalSettings.devicelock.MyDeviceAdminReceiver
+import sync2app.com.syncapplive.additionalSettings.scanutil.CustomShortcuts
+import sync2app.com.syncapplive.additionalSettings.scanutil.DefaultCustomShortCut
 import sync2app.com.syncapplive.additionalSettings.utils.Constants
 import sync2app.com.syncapplive.databinding.ActivityAppAdminBinding
+import sync2app.com.syncapplive.databinding.CustomServerUrlLayoutBinding
+import sync2app.com.syncapplive.databinding.CustomShortCutLayoutBinding
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -78,23 +97,34 @@ class AdditionalSettingsActivity : AppCompatActivity() {
         Handler(Looper.getMainLooper())
     }
 
+
+    // setting for shortCut icons
+    private val SELECT_PICTURE = 200
+    private var isImagePicked = false
+    var imagePicked: Uri? = null
+    private lateinit var custImageView: ImageView
+    private lateinit var customimageRadipoButton: RadioButton
+
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityAppAdminBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
 
+
+        binding.textTitle.setOnClickListener {
+            startActivity(Intent(applicationContext, KoloWebviewPage::class.java))
+        }
+
+
         val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
-
 
 
 
@@ -133,9 +163,6 @@ class AdditionalSettingsActivity : AppCompatActivity() {
 
 
         }
-
-
-        
 
 
         preferences = PreferenceManager.getDefaultSharedPreferences(applicationContext)
@@ -688,9 +715,7 @@ class AdditionalSettingsActivity : AppCompatActivity() {
 
 
             textManageShortCuts.setOnClickListener {
-                val shortCutBottomFragment = ShortCutBottomFragment()
-                shortCutBottomFragment.show(supportFragmentManager, shortCutBottomFragment.tag)
-
+                showPopShortCustom()
             }
 
 
@@ -708,6 +733,7 @@ class AdditionalSettingsActivity : AppCompatActivity() {
         initView()
 
     }
+
 
 
     private fun initView() {
@@ -1105,6 +1131,204 @@ class AdditionalSettingsActivity : AppCompatActivity() {
 
         }
 
+    }
+
+
+    @SuppressLint("MissingInflatedId", "NewApi")
+    private fun showPopShortCustom() {
+        val bindingCM: CustomShortCutLayoutBinding = CustomShortCutLayoutBinding.inflate(layoutInflater)
+        val builder = AlertDialog.Builder(this)
+        builder.setView(bindingCM.getRoot())
+        val alertDialog = builder.create()
+        alertDialog.setCanceledOnTouchOutside(false)
+        alertDialog.setCancelable(false)
+        if (alertDialog.window != null) {
+            alertDialog.window!!.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            alertDialog.window!!.attributes.windowAnimations = R.style.PauseDialogAnimation
+        }
+
+        custImageView = bindingCM.custImageView as ImageView
+        customimageRadipoButton = bindingCM.customimageRadipoButton
+
+
+
+
+        var defaultradio = false
+        var customradio = false
+
+
+        val textLogin = bindingCM.textLogin
+        val editTextText = bindingCM.editTextText
+        val imgCancel = bindingCM.imgCancel
+        val imgCancelSmall = bindingCM.imgCancelSmall
+        custImageView =bindingCM.custImageView
+        val defaultImageFaltImage = bindingCM.defaultImageFaltImage
+        val defaultImageRadioButton = bindingCM.defaultImageRadioButton
+        customimageRadipoButton = bindingCM.customimageRadipoButton
+
+
+        imgCancel.setOnClickListener {
+            alertDialog.dismiss()
+        }
+
+        imgCancelSmall.setOnClickListener {
+            alertDialog.dismiss()
+        }
+
+        custImageView.setOnClickListener {
+            imageChooser()
+            customimageRadipoButton.isChecked = true
+            defaultImageRadioButton.isChecked = false
+            defaultradio = false
+            customradio = true
+            bindingCM.editTextText.setText("")
+
+        }
+
+
+
+        defaultImageFaltImage.setOnClickListener {
+            defaultImageRadioButton.isChecked = true
+            customimageRadipoButton.isChecked = false
+            bindingCM.editTextText.setText("Sync2App")
+
+        }
+
+
+
+        defaultImageRadioButton.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                defaultImageRadioButton.isChecked = true
+                customimageRadipoButton.isChecked = false
+                defaultradio = true
+                customradio = false
+                bindingCM.editTextText.setText("Sync2App")
+            }
+        }
+
+
+
+        textLogin.setOnClickListener {
+            hideKeyBoard(editTextText)
+
+            val getEditString = editTextText.text.toString().trim()
+
+            if (defaultradio) {
+                if (getEditString.isNotEmpty()) {
+                    //  val bitmap = MediaStore.Images.Media.getBitmap(contentResolver, imagePicked)
+                    if (Build.VERSION.SDK_INT >= 25) {
+                        DefaultCustomShortCut.setUp(applicationContext, getEditString)
+                    }
+                    if (Build.VERSION.SDK_INT >= 28) {
+                        shortcutPin(applicationContext, Constants.shortcut_website_id, 0)
+                    }
+                    alertDialog.dismiss()
+                } else {
+                    showToastMessage("Add name")
+                }
+            } else {
+                 showToastMessage("Image and name required")
+            }
+
+
+
+            if (customradio) {
+                if (getEditString.isNotEmpty() && isImagePicked) {
+                    if (Build.VERSION.SDK_INT >= 25) {
+                        val bitmap = MediaStore.Images.Media.getBitmap(applicationContext.contentResolver, imagePicked)
+                        CustomShortcuts.setUp(applicationContext, getEditString, bitmap)
+                    }
+                    if (Build.VERSION.SDK_INT >= 28) {
+                        shortcutPin(applicationContext, Constants.shortcut_messages_id, 1)
+                    }
+                    alertDialog.dismiss()
+                } else {
+                    showToastMessage("Image and name required")
+                }
+            } else {
+                 showToastMessage("Image and name required")
+            }
+        }
+
+
+
+
+        alertDialog.show()
+    }
+
+
+
+    private fun imageChooser() {
+        val i = Intent()
+        i.type = "image/*"
+        i.action = Intent.ACTION_GET_CONTENT
+
+        startActivityForResult(Intent.createChooser(i, "Select Picture"), SELECT_PICTURE)
+    }
+
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (resultCode == Activity.RESULT_OK) {
+            if (requestCode == SELECT_PICTURE) {
+                val selectedImageUri: Uri? = data?.data
+                if (selectedImageUri != null) {
+                    custImageView.setImageURI(selectedImageUri)
+                    customimageRadipoButton.isChecked = true
+                    isImagePicked = true
+
+                    imagePicked = selectedImageUri
+
+                } else {
+                    customimageRadipoButton.isChecked = false
+                    isImagePicked = false
+                }
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun shortcutPin(context: Context, shortcut_id: String, requestCode: Int) {
+
+        val shortcutManager = applicationContext.getSystemService(ShortcutManager::class.java)
+
+        if (shortcutManager!!.isRequestPinShortcutSupported) {
+            val pinShortcutInfo =
+                ShortcutInfo.Builder(context, shortcut_id).build()
+
+            val pinnedShortcutCallbackIntent =
+                shortcutManager.createShortcutResultIntent(pinShortcutInfo)
+
+            val successCallback = PendingIntent.getBroadcast(
+                context, /* request code */ requestCode,
+                pinnedShortcutCallbackIntent, /* flags */ PendingIntent.FLAG_MUTABLE
+            )
+
+            shortcutManager.requestPinShortcut(
+                pinShortcutInfo,
+                successCallback.intentSender
+            )
+        }
+    }
+
+
+    private fun showToastMessage(messages: String) {
+
+        try {
+            Toast.makeText(applicationContext, messages, Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun hideKeyBoard(editText: EditText) {
+        try {
+            editText.clearFocus()
+            val imm =
+                applicationContext.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(editText.windowToken, 0)
+        } catch (ignored: java.lang.Exception) {
+        }
     }
 
 

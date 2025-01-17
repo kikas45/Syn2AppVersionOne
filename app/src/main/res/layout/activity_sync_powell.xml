@@ -365,6 +365,75 @@
                 app:layout_constraintTop_toBottomOf="@+id/textTestConnectionAPPer"
                 app:layout_constraintVertical_bias="0.0" />
 
+
+            <TextView
+                android:id="@+id/textSelectSyncType"
+                style="@style/textColorStyle"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_marginTop="16dp"
+                android:elegantTextHeight="true"
+                android:gravity="start|center"
+                android:maxLines="1"
+                android:paddingStart="26dp"
+                android:text="Select Sync Type"
+                android:textSize="14sp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/textLauncheSaveDownload" />
+
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/constrainSelectSyncType"
+                android:layout_width="0dp"
+                android:layout_height="45dp"
+                android:layout_marginStart="24dp"
+                android:layout_marginEnd="24dp"
+                android:background="@drawable/round_edit_text_design"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?selectableItemBackground"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/textSelectSyncType">
+
+
+                <TextView
+                    android:id="@+id/textDisplaySelectedSyncType"
+                    style="@style/textColorStyleSyncMangerPlus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:elegantTextHeight="true"
+                    android:gravity="start|center"
+                    android:maxLines="1"
+                    android:text="Select Sync Type"
+                    android:textSize="14sp"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toStartOf="@+id/imageViewSelectedSyncType"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+
+                <ImageView
+                    android:id="@+id/imageViewSelectedSyncType"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/ic_drop_down_24"
+                    android:textColor="@android:color/transparent"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:tint="@color/light_gray" />
+
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+
+
+
+
+
             <TextView
                 android:id="@+id/textLunchOnline"
                 style="@style/textColorStyle"
@@ -411,7 +480,7 @@
                 android:textSize="14sp"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/divider26" />
+                app:layout_constraintTop_toBottomOf="@+id/divider11" />
 
             <TextView
                 android:id="@+id/textUseindexChangeOrTimestamp"
@@ -444,22 +513,6 @@
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@+id/textUseStartFile" />
-
-            <TextView
-                android:id="@+id/textSynfromApiZip"
-                style="@style/textColorStyle"
-                android:layout_width="0dp"
-                android:layout_height="50dp"
-                android:layout_marginTop="8dp"
-                android:elegantTextHeight="true"
-                android:gravity="start|center"
-                android:maxLines="1"
-                android:paddingStart="24dp"
-                android:text="Use ZIP Sync"
-                android:textSize="14sp"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/textLauncheSaveDownload" />
 
             <TextView
                 android:id="@+id/textUseManual"
@@ -565,16 +618,6 @@
                 app:layout_constraintTop_toTopOf="@+id/textUseStartFile" />
 
             <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/imagSwtichEnableSyncFromAPI"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="24dp"
-                android:alpha="1"
-                app:layout_constraintBottom_toBottomOf="@+id/textSynfromApiZip"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toTopOf="@+id/textSynfromApiZip" />
-
-            <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/imagSwtichEnableManualOrNot"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -607,16 +650,15 @@
                 app:layout_constraintTop_toBottomOf="@+id/textToogleMode" />
 
 
-
-
             <View
                 android:id="@+id/divider11"
                 style="@style/dividerBackColor"
                 android:layout_width="0dp"
                 android:layout_height="1dp"
-                app:layout_constraintBottom_toTopOf="@+id/textSynfromApiZip"
+                android:layout_marginTop="16dp"
                 app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent" />
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/constrainSelectSyncType" />
 
             <View
                 android:id="@+id/divider15565651"
@@ -640,17 +682,6 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@+id/textConfigfileOnline"
                 tools:visibility="visible" />
-
-            <View
-                android:id="@+id/divider26"
-                style="@style/dividerBackColor"
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_marginStart="1dp"
-                android:layout_marginEnd="1dp"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/textSynfromApiZip" />
 
             <View
                 android:id="@+id/divider27"

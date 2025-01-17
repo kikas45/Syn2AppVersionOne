@@ -166,17 +166,14 @@ class TvActivityOrAppMode : AppCompatActivity(), SavedApiAdapter.OnItemClickList
         binding = ActivityTvOrAppModePageBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+
         val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
+
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
-
 
         setUpdarkUITheme()
 
@@ -188,10 +185,8 @@ class TvActivityOrAppMode : AppCompatActivity(), SavedApiAdapter.OnItemClickList
         MethodsSchedule.setPersistentDefaults()
 
 
-        val get_imgToggleImageBackground =
-            sharedBiometric.getString(Constants.imgToggleImageBackground, "").toString()
-        val get_imageUseBranding =
-            sharedBiometric.getString(Constants.imageUseBranding, "").toString()
+        val get_imgToggleImageBackground = sharedBiometric.getString(Constants.imgToggleImageBackground, "").toString()
+        val get_imageUseBranding = sharedBiometric.getString(Constants.imageUseBranding, "").toString()
         if (get_imgToggleImageBackground.equals(Constants.imgToggleImageBackground) && get_imageUseBranding.equals(
                 Constants.imageUseBranding
             )
@@ -380,6 +375,7 @@ class TvActivityOrAppMode : AppCompatActivity(), SavedApiAdapter.OnItemClickList
                 editText88.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_WebView_Offline)
                 editText88.putString(Constants.imgEnableAutoBoot, Constants.imgEnableAutoBoot)
                 editText88.putString(Constants.imgStartAppRestartOnTvMode, Constants.imgStartAppRestartOnTvMode)
+                editText88.putString(Constants.PROTECT_PASSWORD, Constants.PROTECT_PASSWORD)
                 editText88.apply()
 
 
@@ -534,8 +530,7 @@ class TvActivityOrAppMode : AppCompatActivity(), SavedApiAdapter.OnItemClickList
         val divider21 = bindingCm.divider21
 
 
-        val preferences =
-            android.preference.PreferenceManager.getDefaultSharedPreferences(applicationContext)
+        val preferences = android.preference.PreferenceManager.getDefaultSharedPreferences(applicationContext)
 
         if (preferences.getBoolean("darktheme", false)) {
             consMainAlert_sub_layout.setBackgroundResource(R.drawable.card_design_account_number_dark_pop_layout)
@@ -911,8 +906,12 @@ class TvActivityOrAppMode : AppCompatActivity(), SavedApiAdapter.OnItemClickList
 
                             val editText88 = sharedBiometric.edit()
                             editText88.putString(Constants.imagSwtichEnableSyncFromAPI, Constants.imagSwtichEnableSyncFromAPI)
+                            editText88.putString(Constants.IMG_SELECTED_SYNC_METHOD, Constants.USE_ZIP_SYNC)
                             editText88.apply()
 
+                            val editText88Dn = myDownloadClass.edit()
+                            editText88Dn.putString(Constants.IMG_SELECTED_SYNC_METHOD, Constants.USE_ZIP_SYNC)
+                            editText88Dn.apply()
 
                             // check if Api or Custom server
                             if (binding.imgUserMasterDomainORCustom.isChecked) {
@@ -1041,48 +1040,70 @@ class TvActivityOrAppMode : AppCompatActivity(), SavedApiAdapter.OnItemClickList
         }
 
 
-
-
     }
 
 
+/// later use the permission required of it
 
     private fun startPermissionProcess() {
-        when {
-    /*        !isIgnoringBatteryOptimizations(this, packageName) -> {
-                requestIgnoreBatteryOptimizations()
-            }*/
 
+        if (Build.VERSION.SDK_INT >= 30) {
+            when {
+                !isIgnoringBatteryOptimizations(this, packageName) -> {
+                    requestIgnoreBatteryOptimizations()
+                }
+                !Settings.System.canWrite(applicationContext) -> {
+                    showPopAllowAppToWriteSystem()
+                }
+                !Settings.canDrawOverlays(this) -> {
+                    showPop_For_Allow_Display_Over_Apps()
+                }
+                !checkStoragePermission(this) -> {
+                    showPop_For_Grant_Permsiion()
+                }
+                else -> {
 
-            !Settings.System.canWrite(applicationContext) -> {
-                showPopAllowAppToWriteSystem()
+                    if (!isDialogPermissionShown){
+
+                        handler.postDelayed(Runnable {
+
+                            checkMultiplePermissions()
+
+                        }, 500)
+                    }
+                }
             }
-            !Settings.canDrawOverlays(this) -> {
-                showPop_For_Allow_Display_Over_Apps()
-            }
-            !checkStoragePermission(this) -> {
-                showPop_For_Grant_Permsiion()
-            }
-            else -> {
 
-                if (!isDialogPermissionShown){
+        }else{
 
-                    handler.postDelayed(Runnable {
+            when {
+                !checkStoragePermission(this) -> {
+                    showPop_For_Grant_Permsiion()
+                }
+                else -> {
 
-                        checkMultiplePermissions()
+                    if (!isDialogPermissionShown){
 
-                    }, 500)
+                        handler.postDelayed(Runnable {
+
+                            checkMultiplePermissions()
+
+                        }, 500)
+                    }
                 }
             }
         }
+
     }
 
 
+/// later use the permission required of it
 
 
 
-    /*
-        private fun startPermissionProcess() {
+/*
+
+    private fun startPermissionProcess() {
             when {
                 !isIgnoringBatteryOptimizations(this, packageName) -> {
                     requestIgnoreBatteryOptimizations()
@@ -1109,7 +1130,10 @@ class TvActivityOrAppMode : AppCompatActivity(), SavedApiAdapter.OnItemClickList
                 }
             }
         }
-    */
+
+*/
+
+
 
     @SuppressLint("BatteryLife")
     private fun requestIgnoreBatteryOptimizations() {

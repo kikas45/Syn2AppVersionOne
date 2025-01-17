@@ -121,16 +121,27 @@ class DownloadApisFilesActivity : AppCompatActivity() {
         binding = ActivityDownloadTheApisBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+ /*       val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
+        if (getState == Constants.ENABLE_LANDSCAPE_MODE){
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }else{
+            *//* if (getState.isNullOrEmpty()){
+                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+             }else{
+                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+             }*//*
+        }
+*/
+
+
+
         val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+
 
 
         preferences = PreferenceManager.getDefaultSharedPreferences(applicationContext)
@@ -918,7 +929,7 @@ class DownloadApisFilesActivity : AppCompatActivity() {
     }
 
 
-    fun delete(file: File): Boolean {
+   private fun delete(file: File): Boolean {
         if (file.isFile) {
             return file.delete()
         } else if (file.isDirectory) {
@@ -942,7 +953,7 @@ class DownloadApisFilesActivity : AppCompatActivity() {
 
         try {
 
-            val download_ref: Long = sharedP.getLong(Constants.downloadKey, -15)
+/*            val download_ref: Long = sharedP.getLong(Constants.downloadKey, -15)
 
             val query = DownloadManager.Query()
             query.setFilterById(download_ref)
@@ -955,7 +966,7 @@ class DownloadApisFilesActivity : AppCompatActivity() {
                 val editor: SharedPreferences.Editor = sharedP.edit()
                 editor.remove(Constants.downloadKey)
                 editor.apply()
-            }
+            }*/
         } catch (ignored: java.lang.Exception) {
         }
     }

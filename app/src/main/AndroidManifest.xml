@@ -68,6 +68,22 @@
         android:theme="@style/Theme.RemoteWebViewLight"
         android:usesCleartextTraffic="true"
         tools:ignore="AllowBackup,UnusedAttribute">
+
+        <activity
+            android:name=".additionalSettings.DownloadZipActivityForSingle"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
+        <service
+            android:name=".myService.ParsingSyncService"
+            android:enabled="true"
+            android:exported="true" />
+        <service
+            android:name=".myService.RetryParsingSyncService"
+            android:enabled="true"
+            android:exported="true" />
+
         <activity
             android:name=".SplashKT"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
@@ -84,18 +100,15 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
             android:exported="false"
             android:launchMode="singleTop" />
-
-
         <activity
             android:name=".WebViewPage"
             android:allowEmbedded="true"
-            android:enabled="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
+            android:enabled="true"
             android:exported="false"
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
             tools:ignore="AppLinkUrlError">
-
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
@@ -105,13 +118,14 @@
                 <data android:scheme="http" />
                 <data android:scheme="https" />
             </intent-filter>
-
         </activity>
-
-
-
         <activity
-            android:name=".DE_MO_TEST.KoloWebviewPage"
+            android:name=".additionalSettings.DownloadApisFilesActivityParsing"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
+            android:exported="false"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".additionalSettings.RetryApiDownloadActivityParsing"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
             android:exported="false"
             android:launchMode="singleTop" />
@@ -231,20 +245,28 @@
             android:exported="false"
             android:launchMode="singleTop" />
 
-
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="@string/appid" />
-
 
         <activity
             android:name=".additionalSettings.TvActivityOrAppMode"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
             android:exported="true"
+            android:launchMode="singleTop">
+
+        </activity>
+
+
+        <activity
+            android:name=".DE_MO_TEST.KoloWebviewPage"
+            android:exported="false"
             android:launchMode="singleTop" />
-
-
-
+        <activity
+            android:name=".DE_MO_TEST.Kolo_Service_Manger"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
+            android:exported="false"
+            android:launchMode="singleTop" />
         <activity
             android:name=".additionalSettings.SplashVideoActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
@@ -254,6 +276,8 @@
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

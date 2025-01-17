@@ -106,15 +106,13 @@ class SplashKT : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivitySplashBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+
         val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
 
         // make screen to be full screen
@@ -484,6 +482,7 @@ class SplashKT : AppCompatActivity() {
                                     // saving launch state
                                     val editText88 = sharedBiometric.edit()
                                     editText88.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_WebView_Offline)
+                                    editText88.putString(Constants.PROTECT_PASSWORD, Constants.PROTECT_PASSWORD)
                                     editText88.apply()
 
 
@@ -498,6 +497,7 @@ class SplashKT : AppCompatActivity() {
                                     // saving launch state
                                     val editText88 = sharedBiometric.edit()
                                     editText88.putString(Constants.get_Launching_State_Of_WebView, Constants.launch_Default_WebView_url)
+                                    editText88.remove(Constants.PROTECT_PASSWORD)
                                     editText88.apply()
 
 

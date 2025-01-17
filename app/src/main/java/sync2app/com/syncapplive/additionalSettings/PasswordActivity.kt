@@ -30,6 +30,7 @@ import androidx.preference.PreferenceManager
 import com.bumptech.glide.Glide
 import sync2app.com.syncapplive.R
 import sync2app.com.syncapplive.SettingsActivityKT
+import sync2app.com.syncapplive.WebViewPage
 import sync2app.com.syncapplive.additionalSettings.autostartAppOncrash.Methods
 import sync2app.com.syncapplive.additionalSettings.utils.Constants
 import sync2app.com.syncapplive.databinding.ActivityPasswordBinding
@@ -86,16 +87,16 @@ class PasswordActivity : AppCompatActivity() {
         binding = ActivityPasswordBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+
         val getState = sharedBiometric.getString(Constants.ENABLE_LANDSCAPE_MODE, "").toString()
         if (getState == Constants.ENABLE_LANDSCAPE_MODE){
+
             requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }else{
-            if (getState.isNullOrEmpty()){
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }else{
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
+            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+
+
 
         // Set Dark Theme
 
@@ -721,6 +722,12 @@ class PasswordActivity : AppCompatActivity() {
 
         } else if (getStateNaviagtion.equals(Constants.AdditionNalPage)){
             val intent = Intent(applicationContext, AdditionalSettingsActivity::class.java)
+            startActivity(intent)
+            finish()
+        }
+
+        else if (getStateNaviagtion.equals(Constants.WebViewPage)){
+            val intent = Intent(applicationContext, WebViewPage::class.java)
             startActivity(intent)
             finish()
         }
